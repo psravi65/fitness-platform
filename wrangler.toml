@@ -1,0 +1,19 @@
+name = "fitness-platform"
+main = "src/worker.js"
+compatibility_date = "2025-01-15"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "fitness-platform"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+[vars]
+APP_NAME = "Fitness Platform"
+GEMINI_MODEL = "gemini-2.0-flash"
+COOKIE_SECURE = "true"
+

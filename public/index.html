@@ -1,0 +1,1035 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Fitness Platform</title>
+  <style>
+    :root{
+      --bg:#08111f;
+      --panel:#13233b;
+      --panel-soft:#0e1b2d;
+      --line:#243856;
+      --text:#eef4ff;
+      --muted:#8ea2c7;
+      --orange:#ff9350;
+      --teal:#37d6c7;
+      --lime:#91db5d;
+      --red:#ff6b6b;
+      --gold:#ffd166;
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{
+      min-height:100vh;
+      font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif;
+      color:var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(255,147,80,.14), transparent 26%),
+        radial-gradient(circle at top right, rgba(55,214,199,.12), transparent 24%),
+        linear-gradient(180deg,#08111f 0%,#0c1526 100%);
+    }
+    a{color:inherit}
+    button,input,select,textarea{font:inherit}
+    .app-shell{max-width:1200px;margin:0 auto;padding:24px}
+    .topbar{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:24px}
+    .brand h1{font-size:32px;line-height:1}
+    .brand p{color:var(--muted);margin-top:8px}
+    .top-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .badge{display:inline-flex;align-items:center;padding:6px 10px;border-radius:999px;background:rgba(55,214,199,.08);border:1px solid rgba(55,214,199,.3);color:var(--teal);font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+    .layout{display:grid;grid-template-columns:260px 1fr;gap:20px}
+    .sidebar,.panel{background:linear-gradient(180deg, rgba(19,35,59,.96), rgba(12,21,38,.96));border:1px solid var(--line);border-radius:22px;box-shadow:0 22px 48px rgba(0,0,0,.24)}
+    .sidebar{padding:18px;align-self:start;position:sticky;top:24px}
+    .sidebar nav{display:grid;gap:8px;margin-top:14px}
+    .nav-btn,.action-btn,.ghost-btn{border:none;border-radius:14px;padding:12px 14px;cursor:pointer;text-align:left}
+    .nav-btn{background:transparent;color:var(--muted);font-weight:700}
+    .nav-btn.active{background:rgba(255,147,80,.12);color:var(--orange);border:1px solid rgba(255,147,80,.25)}
+    .panel{padding:20px}
+    .panel h2{font-size:24px;margin-bottom:8px}
+    .subtle{color:var(--muted)}
+    .grid{display:grid;gap:16px}
+    .grid.cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .grid.cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+    .card{background:var(--panel-soft);border:1px solid var(--line);border-radius:18px;padding:16px}
+    .stat{font-size:28px;font-weight:900;margin-top:6px}
+    label{display:block}
+    label span{display:block;font-size:12px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em}
+    input,select,textarea{width:100%;background:#0c1628;color:var(--text);border:1px solid var(--line);border-radius:12px;padding:12px 13px;outline:none}
+    textarea{min-height:110px;resize:vertical}
+    .action-btn{background:linear-gradient(90deg,var(--orange),#ffb06c);color:#09101d;font-weight:900}
+    .ghost-btn{background:transparent;border:1px solid var(--line);color:var(--text);font-weight:700}
+    .danger{background:linear-gradient(90deg,#ff6b6b,#ff9a7d);color:#190707}
+    .success{color:var(--lime)}
+    .error{color:var(--red)}
+    .table{width:100%;border-collapse:collapse}
+    .table th,.table td{padding:12px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+    .table th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+    .pill{display:inline-block;padding:4px 8px;border-radius:999px;font-size:12px;font-weight:800}
+    .pill.draft{background:rgba(255,209,102,.12);color:var(--gold)}
+    .pill.published{background:rgba(145,219,93,.12);color:var(--lime)}
+    .pill.active{background:rgba(55,214,199,.12);color:var(--teal)}
+    .toolbar{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:18px}
+    .inline{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .split{display:grid;grid-template-columns:1.1fr .9fr;gap:16px}
+    .hide{display:none!important}
+    .empty{padding:32px 18px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:16px}
+    pre{white-space:pre-wrap;word-break:break-word;background:#0b1424;border:1px solid var(--line);padding:14px;border-radius:14px;color:#d8e8ff}
+    .plan-section{display:grid;gap:10px}
+    .plan-list{display:grid;gap:8px}
+    .plan-list div{background:#0c1628;border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+    .login-wrap{max-width:460px;margin:8vh auto 0}
+    .footer-note{font-size:12px;color:var(--muted)}
+    @media (max-width: 900px){
+      .layout,.split,.grid.cols-2,.grid.cols-3{grid-template-columns:1fr}
+      .sidebar{position:static}
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script>
+    const state = {
+      me: null,
+      route: window.location.pathname,
+      clients: [],
+      selectedClient: null,
+      adminClientDetail: null,
+      appData: null,
+      loading: false,
+      message: "",
+      error: "",
+      draftPassword: "",
+      pendingPlanEdit: null,
+      needsAdminBootstrap: false,
+      autoSaveStatus: ""
+    };
+    let dailyLogAutoSaveTimer = null;
+    let dayRolloverTimer = null;
+
+    const intakeSections = [
+      { key: "profile", title: "Profile", fields: [
+        ["fullName", "Full name"], ["age", "Age"], ["heightCm", "Height (cm)"], ["weightKg", "Weight (kg)"], ["sex", "Sex"], ["location", "Location"]
+      ]},
+      { key: "bodyComposition", title: "Body Composition", fields: [
+        ["bodyFat", "Body fat %"], ["targetBodyFat", "Target body fat %"], ["goalType", "Goal type"]
+      ]},
+      { key: "training", title: "Training", fields: [
+        ["daysPerWeek", "Days / week"], ["sessionDuration", "Session duration"], ["trainingTime", "Training time"], ["gymAccess", "Gym access"], ["cardioPreference", "Cardio preference"]
+      ]},
+      { key: "injuriesMedical", title: "Injuries & Medical", fields: [
+        ["injuries", "Injuries"], ["rehabConstraints", "Rehab constraints"], ["medications", "Medications"], ["supplements", "Supplements"]
+      ]},
+      { key: "diet", title: "Diet", fields: [
+        ["dietStyle", "Diet style"], ["cuisineStyle", "Cuisine style"], ["mealsPerDay", "Meals / day"], ["allergies", "Allergies"], ["preferences", "Preferences"]
+      ]},
+      { key: "lifestyle", title: "Lifestyle", fields: [
+        ["sleepHours", "Sleep hours"], ["activityLevel", "Activity level"], ["workPattern", "Work pattern"]
+      ]},
+      { key: "notes", title: "Notes", fields: [
+        ["coachNotes", "Notes"]
+      ]}
+    ];
+
+    function setRoute(path){
+      state.route = path;
+      history.pushState({}, "", path);
+      render();
+      void bootstrapForRoute();
+    }
+
+    window.addEventListener("popstate", () => {
+      state.route = window.location.pathname;
+      render();
+      void bootstrapForRoute();
+    });
+
+    function el(strings, ...values){
+      return strings.reduce((acc, str, i) => acc + str + (values[i] ?? ""), "");
+    }
+
+    async function api(path, options = {}){
+      const res = await fetch(path, {
+        headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+        credentials: "include",
+        ...options
+      });
+      const text = await res.text();
+      let json = {};
+      try { json = text ? JSON.parse(text) : {}; } catch {}
+      if(!res.ok){
+        throw new Error(json.error || "Request failed");
+      }
+      return json;
+    }
+
+    function setFlash(message, isError = false){
+      state.message = isError ? "" : message;
+      state.error = isError ? message : "";
+      render();
+    }
+
+    function updateAutoSaveStatus(text){
+      state.autoSaveStatus = text;
+      const node = document.getElementById("autosave-status");
+      if(node) node.textContent = text;
+    }
+
+    function requireAuth(role){
+      if(!state.me){
+        setRoute("/login");
+        return false;
+      }
+      if(role && state.me.role !== role){
+        setRoute(state.me.role === "admin" ? "/admin" : "/app");
+        return false;
+      }
+      return true;
+    }
+
+    async function bootstrap(){
+      try{
+        const res = await api("/api/me", { method: "GET", headers: {} });
+        state.me = res.user;
+        state.needsAdminBootstrap = false;
+      }catch{
+        state.me = null;
+        try{
+          const bootstrap = await api("/api/bootstrap-admin-check", { method: "GET", headers: {} });
+          state.needsAdminBootstrap = !!bootstrap.needsAdminBootstrap;
+        }catch{}
+      }
+      render();
+      await bootstrapForRoute();
+    }
+
+    async function bootstrapForRoute(){
+      const path = state.route;
+      if(path === "/login") return;
+      if(state.me?.mustChangePassword) return;
+      if(path.startsWith("/admin")){
+        if(!requireAuth("admin")) return;
+        state.clients = (await api("/api/admin/clients", { method: "GET", headers: {} })).clients;
+        const match = path.match(/^\/admin\/clients\/([^/]+)$/);
+        if(match){
+          state.adminClientDetail = await api("/api/admin/clients/" + match[1], { method: "GET", headers: {} });
+          state.pendingPlanEdit = normalizeEditablePlan(state.adminClientDetail.plan?.effectivePlan || state.adminClientDetail.plan?.generated_json || {});
+        } else {
+          state.adminClientDetail = null;
+        }
+      } else if(path.startsWith("/app")){
+        if(!requireAuth("client")) return;
+        state.appData = await api("/api/app/bootstrap", { method: "GET", headers: {} });
+      } else {
+        if(state.me){
+          setRoute(state.me.role === "admin" ? "/admin" : "/app");
+          return;
+        }
+        setRoute("/login");
+        return;
+      }
+      render();
+    }
+
+    async function handleLogin(ev){
+      ev.preventDefault();
+      const form = new FormData(ev.target);
+      try{
+        const res = await api("/api/auth/login", {
+          method: "POST",
+          body: JSON.stringify({
+            username: form.get("username"),
+            password: form.get("password")
+          })
+        });
+        state.me = res.user;
+        setFlash("Logged in.");
+        setRoute(state.me.mustChangePassword ? "/app/password" : (state.me.role === "admin" ? "/admin" : "/app"));
+      }catch(err){
+        setFlash(err.message, true);
+      }
+    }
+
+    async function bootstrapAdmin(ev){
+      ev.preventDefault();
+      const form = new FormData(ev.target);
+      try{
+        await api("/api/bootstrap-admin", {
+          method: "POST",
+          body: JSON.stringify({
+            username: form.get("username"),
+            password: form.get("password")
+          })
+        });
+        setFlash("Admin created. You can log in now.");
+        state.needsAdminBootstrap = false;
+        render();
+      }catch(err){
+        setFlash(err.message, true);
+      }
+    }
+
+    async function logout(){
+      await api("/api/auth/logout", { method: "POST", body: "{}" });
+      state.me = null;
+      state.clients = [];
+      state.adminClientDetail = null;
+      state.appData = null;
+      setRoute("/login");
+    }
+
+    async function createClient(ev){
+      ev.preventDefault();
+      const form = new FormData(ev.target);
+      try{
+        const res = await api("/api/admin/clients", {
+          method: "POST",
+          body: JSON.stringify({
+            fullName: form.get("fullName"),
+            username: form.get("username")
+          })
+        });
+        state.draftPassword = res.temporaryPassword;
+        setFlash("Client created. Save the temporary password now.");
+        await bootstrapForRoute();
+      }catch(err){
+        setFlash(err.message, true);
+      }
+    }
+
+    async function resetPassword(clientId){
+      try{
+        const res = await api("/api/admin/clients/" + clientId + "/reset-password", {
+          method: "POST",
+          body: "{}"
+        });
+        state.draftPassword = res.temporaryPassword;
+        setFlash("Temporary password reset. Save it now.");
+        await bootstrapForRoute();
+      }catch(err){
+        setFlash(err.message, true);
+      }
+    }
+
+    async function saveIntake(ev, clientId){
+      ev.preventDefault();
+      const form = new FormData(ev.target);
+      const payload = {};
+      for (const section of intakeSections){
+        payload[section.key] = {};
+        for (const [field] of section.fields){
+          payload[section.key][field] = form.get(section.key + "." + field) || "";
+        }
+      }
+      try{
+        if(clientId){
+          await api("/api/clients/" + clientId + "/intake", { method: "POST", body: JSON.stringify({ answers: payload, complete: true }) });
+        } else {
+          await api("/api/app/intake", { method: "POST", body: JSON.stringify({ answers: payload, complete: true }) });
+        }
+        setFlash("Intake saved.");
+        await bootstrapForRoute();
+      }catch(err){
+        setFlash(err.message, true);
+      }
+    }
+
+    async function generatePlan(clientId){
+      try{
+        await api("/api/admin/clients/" + clientId + "/generate-plan", { method: "POST", body: "{}" });
+        setFlash("Plan draft generated.");
+        await bootstrapForRoute();
+      }catch(err){
+        setFlash(err.message, true);
+      }
+    }
+
+    async function savePlanEdits(clientId){
+      try{
+        const edited = collectPlanEditForm();
+        await api("/api/admin/clients/" + clientId + "/plan", {
+          method: "PATCH",
+          body: JSON.stringify({ editedPlan: edited })
+        });
+        setFlash("Plan edits saved.");
+        await bootstrapForRoute();
+      }catch(err){
+        setFlash(err.message || "Plan edits could not be saved.", true);
+      }
+    }
+
+    async function publishPlan(clientId, publish){
+      try{
+        await api("/api/admin/clients/" + clientId + "/publish-plan", {
+          method: "POST",
+          body: JSON.stringify({ publish })
+        });
+        setFlash(publish ? "Plan published." : "Plan unpublished.");
+        await bootstrapForRoute();
+      }catch(err){
+        setFlash(err.message, true);
+      }
+    }
+
+    async function saveDailyLog(ev){
+      ev.preventDefault();
+      return saveDailyLogFromForm(ev.target, true);
+    }
+
+    async function saveDailyLogFromForm(formEl, showFlash){
+      const form = new FormData(formEl);
+      const date = form.get("logDate");
+      const payload = {
+        meals: {
+          breakfast: form.get("breakfast") || "",
+          lunch: form.get("lunch") || "",
+          dinner: form.get("dinner") || "",
+          snacks: form.get("snacks") || ""
+        },
+        workout: {
+          completed: form.get("workoutCompleted") === "on",
+          notes: form.get("workoutNotes") || ""
+        },
+        macros: {
+          calories: Number(form.get("calories") || 0),
+          protein: Number(form.get("protein") || 0),
+          carbs: Number(form.get("carbs") || 0),
+          fat: Number(form.get("fat") || 0)
+        },
+        hydration: Number(form.get("hydration") || 0),
+        steps: Number(form.get("steps") || 0),
+        cardio: form.get("cardio") || "",
+        notes: form.get("notes") || ""
+      };
+      try{
+        await api("/api/app/daily-log/" + date, {
+          method: "PUT",
+          body: JSON.stringify(payload)
+        });
+        updateAutoSaveStatus("Saved at " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+        if(state.appData){
+          state.appData.dailyLog = {
+            ...(state.appData.dailyLog || {}),
+            log_date: date,
+            meals_json: payload.meals,
+            workout_json: payload.workout,
+            macros_json: payload.macros,
+            hydration: payload.hydration,
+            steps: payload.steps,
+            cardio: payload.cardio,
+            notes: payload.notes
+          };
+        }
+        if(showFlash){
+          setFlash("Daily log saved.");
+          await bootstrapForRoute();
+        }
+      }catch(err){
+        updateAutoSaveStatus("Auto-save failed");
+        if(showFlash){
+          setFlash(err.message, true);
+        }
+      }
+    }
+
+    function attachDailyLogEnhancements(){
+      const form = document.getElementById("daily-log-form");
+      if(!form) return;
+      if(dailyLogAutoSaveTimer) clearTimeout(dailyLogAutoSaveTimer);
+      if(dayRolloverTimer) clearInterval(dayRolloverTimer);
+      const scheduleAutoSave = () => {
+        updateAutoSaveStatus("Saving...");
+        clearTimeout(dailyLogAutoSaveTimer);
+        dailyLogAutoSaveTimer = setTimeout(() => {
+          const liveForm = document.getElementById("daily-log-form");
+          if(liveForm) void saveDailyLogFromForm(liveForm, false);
+        }, 1200);
+      };
+      form.querySelectorAll("input, textarea").forEach((field) => {
+        field.addEventListener("input", scheduleAutoSave);
+        field.addEventListener("change", scheduleAutoSave);
+      });
+      dayRolloverTimer = setInterval(() => {
+        const liveForm = document.getElementById("daily-log-form");
+        if(!liveForm) return;
+        const dateInput = liveForm.querySelector('input[name="logDate"]');
+        const today = new Date().toISOString().slice(0, 10);
+        if(dateInput && dateInput.value !== today){
+          void saveDailyLogFromForm(liveForm, false).finally(async () => {
+            await bootstrapForRoute();
+          });
+        }
+      }, 60000);
+    }
+
+    async function saveCheckin(ev){
+      ev.preventDefault();
+      const form = new FormData(ev.target);
+      try{
+        await api("/api/app/checkins", {
+          method: "POST",
+          body: JSON.stringify({
+            checkinDate: form.get("checkinDate"),
+            weight: Number(form.get("weight") || 0),
+            bodyFat: Number(form.get("bodyFat") || 0),
+            waist: Number(form.get("waist") || 0),
+            hips: Number(form.get("hips") || 0),
+            notes: form.get("checkinNotes") || ""
+          })
+        });
+        setFlash("Check-in saved.");
+        await bootstrapForRoute();
+      }catch(err){
+        setFlash(err.message, true);
+      }
+    }
+
+    async function saveWeeklyReview(ev){
+      ev.preventDefault();
+      const form = new FormData(ev.target);
+      const weekKey = form.get("weekKey");
+      try{
+        await api("/api/app/weekly-review/" + weekKey, {
+          method: "PUT",
+          body: JSON.stringify({
+            weight: form.get("reviewWeight") === "on",
+            workouts: form.get("reviewWorkouts") === "on",
+            protein: form.get("reviewProtein") === "on",
+            sleep: form.get("reviewSleep") === "on"
+          })
+        });
+        setFlash("Weekly review saved.");
+        await bootstrapForRoute();
+      }catch(err){
+        setFlash(err.message, true);
+      }
+    }
+
+    async function changePassword(ev){
+      ev.preventDefault();
+      const form = new FormData(ev.target);
+      try{
+        await api("/api/auth/change-password", {
+          method: "POST",
+          body: JSON.stringify({
+            currentPassword: form.get("currentPassword"),
+            newPassword: form.get("newPassword")
+          })
+        });
+        setFlash("Password updated.");
+        await bootstrapForRoute();
+      }catch(err){
+        setFlash(err.message, true);
+      }
+    }
+
+    async function exportSheets(clientId){
+      try{
+        await api("/api/admin/exports/google-sheets", {
+          method: "POST",
+          body: JSON.stringify({ clientId })
+        });
+        setFlash("Export sent to Google Sheets.");
+      }catch(err){
+        setFlash(err.message, true);
+      }
+    }
+
+    function renderPlan(plan){
+      if(!plan) return '<div class="empty">No plan available yet.</div>';
+      const data = plan.effectivePlan || plan;
+      return el`
+        <div class="grid">
+          <div class="card"><div class="subtle">Summary</div><div class="plan-list"><div>${data.profileSummary || ""}</div></div></div>
+          <div class="grid cols-3">
+            <div class="card"><div class="subtle">Calories</div><div class="stat">${data.calorieTarget || "-"}</div></div>
+            <div class="card"><div class="subtle">Protein</div><div class="stat">${data.macros?.protein || "-"}</div></div>
+            <div class="card"><div class="subtle">Carbs / Fat</div><div class="stat">${data.macros?.carbs || "-"} / ${data.macros?.fat || "-"}</div></div>
+          </div>
+          <div class="split">
+            <div class="card plan-section">
+              <h3>Meals</h3>
+              ${(data.mealOptions || []).map(section => `<div><strong>${section.meal}</strong><div class="plan-list">${section.options.map(opt => `<div>${opt}</div>`).join("")}</div></div>`).join("")}
+            </div>
+            <div class="card plan-section">
+              <h3>Training</h3>
+              ${(data.workoutSplit || []).map(day => `<div><strong>${day.day}</strong><div class="plan-list">${day.exercises.map(ex => `<div>${ex}</div>`).join("")}</div></div>`).join("")}
+            </div>
+          </div>
+          <div class="split">
+            <div class="card"><h3>Supplements</h3><div class="plan-list">${(data.supplements || []).map(item => `<div>${item}</div>`).join("")}</div></div>
+            <div class="card"><h3>Success Rules</h3><div class="plan-list">${(data.successRules || []).map(item => `<div>${item}</div>`).join("")}</div></div>
+          </div>
+        </div>
+      `;
+    }
+
+    function normalizeEditablePlan(plan){
+      return {
+        profileSummary: plan.profileSummary || "",
+        calorieTarget: plan.calorieTarget || "",
+        macros: {
+          protein: plan.macros?.protein || "",
+          carbs: plan.macros?.carbs || "",
+          fat: plan.macros?.fat || ""
+        },
+        mealOptions: Array.isArray(plan.mealOptions) ? plan.mealOptions : [],
+        weeklyMealStructure: Array.isArray(plan.weeklyMealStructure) ? plan.weeklyMealStructure : [],
+        supplements: Array.isArray(plan.supplements) ? plan.supplements : [],
+        workoutSplit: Array.isArray(plan.workoutSplit) ? plan.workoutSplit : [],
+        progressMilestones: Array.isArray(plan.progressMilestones) ? plan.progressMilestones : [],
+        successRules: Array.isArray(plan.successRules) ? plan.successRules : [],
+        cautions: Array.isArray(plan.cautions) ? plan.cautions : []
+      };
+    }
+
+    function escapeAttr(value){
+      return escapeHtml(value).replaceAll("'", "&#39;");
+    }
+
+    function renderListEditor(name, items, placeholder){
+      return `
+        <textarea name="${name}" placeholder="${escapeAttr(placeholder)}">${escapeHtml((items || []).join("\n"))}</textarea>
+        <div class="footer-note">One item per line.</div>
+      `;
+    }
+
+    function renderPlanEditor(plan){
+      const meals = (plan.mealOptions || []).map(section => `${section.meal}: ${(section.options || []).join(" | ")}`).join("\n");
+      const workouts = (plan.workoutSplit || []).map(section => `${section.day}: ${(section.exercises || []).join(" | ")}`).join("\n");
+      return `
+        <form class="grid" id="plan-edit-form" style="margin-top:12px">
+          <label>
+            <span>Profile Summary</span>
+            <textarea name="profileSummary">${escapeHtml(plan.profileSummary || "")}</textarea>
+          </label>
+          <div class="grid cols-2">
+            <label><span>Calorie Target</span><input name="calorieTarget" value="${escapeAttr(plan.calorieTarget || "")}"/></label>
+            <div class="grid cols-3">
+              <label><span>Protein</span><input name="macroProtein" value="${escapeAttr(plan.macros?.protein || "")}"/></label>
+              <label><span>Carbs</span><input name="macroCarbs" value="${escapeAttr(plan.macros?.carbs || "")}"/></label>
+              <label><span>Fat</span><input name="macroFat" value="${escapeAttr(plan.macros?.fat || "")}"/></label>
+            </div>
+          </div>
+          <label>
+            <span>Meal Options</span>
+            <textarea name="mealOptions" placeholder="Breakfast: Eggs | Oats&#10;Lunch: Rice | Chicken | Vegetables">${escapeHtml(meals)}</textarea>
+            <div class="footer-note">One line per meal. Use <code>Meal: item | item | item</code>.</div>
+          </label>
+          <label>
+            <span>Workout Split</span>
+            <textarea name="workoutSplit" placeholder="Day 1: Squat | Lunges | Leg Curl">${escapeHtml(workouts)}</textarea>
+            <div class="footer-note">One line per day. Use <code>Day: exercise | exercise | exercise</code>.</div>
+          </label>
+          <label>
+            <span>Weekly Meal Structure</span>
+            ${renderListEditor("weeklyMealStructure", plan.weeklyMealStructure, "Mon - Breakfast / Lunch / Dinner")}
+          </label>
+          <div class="grid cols-2">
+            <label><span>Supplements</span>${renderListEditor("supplements", plan.supplements, "Whey protein")}</label>
+            <label><span>Progress Milestones</span>${renderListEditor("progressMilestones", plan.progressMilestones, "Week 4 - consistency milestone")}</label>
+          </div>
+          <div class="grid cols-2">
+            <label><span>Success Rules</span>${renderListEditor("successRules", plan.successRules, "Protein at every meal")}</label>
+            <label><span>Cautions</span>${renderListEditor("cautions", plan.cautions, "Respect injury limits")}</label>
+          </div>
+        </form>
+      `;
+    }
+
+    function collectPlanEditForm(){
+      const form = document.getElementById("plan-edit-form");
+      if(!form) return normalizeEditablePlan(state.pendingPlanEdit || {});
+      const data = new FormData(form);
+      const parseList = (value) => String(value || "").split("\n").map(item => item.trim()).filter(Boolean);
+      const parseSectioned = (value, keyName, valueName) => String(value || "")
+        .split("\n")
+        .map(line => line.trim())
+        .filter(Boolean)
+        .map(line => {
+          const separator = line.indexOf(":");
+          const head = separator >= 0 ? line.slice(0, separator).trim() : line;
+          const tail = separator >= 0 ? line.slice(separator + 1) : "";
+          return {
+            [keyName]: head,
+            [valueName]: tail.split("|").map(item => item.trim()).filter(Boolean)
+          };
+        })
+        .filter(item => item[keyName]);
+      const edited = {
+        profileSummary: String(data.get("profileSummary") || "").trim(),
+        calorieTarget: String(data.get("calorieTarget") || "").trim(),
+        macros: {
+          protein: String(data.get("macroProtein") || "").trim(),
+          carbs: String(data.get("macroCarbs") || "").trim(),
+          fat: String(data.get("macroFat") || "").trim()
+        },
+        mealOptions: parseSectioned(data.get("mealOptions"), "meal", "options"),
+        weeklyMealStructure: parseList(data.get("weeklyMealStructure")),
+        supplements: parseList(data.get("supplements")),
+        workoutSplit: parseSectioned(data.get("workoutSplit"), "day", "exercises"),
+        progressMilestones: parseList(data.get("progressMilestones")),
+        successRules: parseList(data.get("successRules")),
+        cautions: parseList(data.get("cautions"))
+      };
+      state.pendingPlanEdit = edited;
+      return edited;
+    }
+
+    function renderIntakeForm(values = {}, submitLabel, onSubmit, clientId){
+      return `
+        <form class="grid" onsubmit="${onSubmit}">
+          ${intakeSections.map(section => `
+            <div class="card">
+              <h3>${section.title}</h3>
+              <div class="grid cols-2" style="margin-top:12px">
+                ${section.fields.map(([field, label]) => `
+                  <label style="${section.fields.length === 1 ? 'grid-column:1/-1' : ''}">
+                    <span>${label}</span>
+                    <input name="${section.key}.${field}" value="${escapeHtml(values?.[section.key]?.[field] || '')}"/>
+                  </label>
+                `).join("")}
+              </div>
+            </div>
+          `).join("")}
+          <div class="inline">
+            <button class="action-btn" type="submit">${submitLabel}</button>
+          </div>
+        </form>
+      `;
+    }
+
+    function escapeHtml(value){
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+    }
+
+    function currentWeekKey(){
+      const now = new Date();
+      return now.getFullYear() + "-W" + Math.ceil((((now - new Date(now.getFullYear(),0,1)) / 86400000) + new Date(now.getFullYear(),0,1).getDay() + 1) / 7);
+    }
+
+    function render(){
+      const root = document.getElementById("app");
+      const path = state.route;
+      if(path !== "/app/log"){
+        if(dailyLogAutoSaveTimer) clearTimeout(dailyLogAutoSaveTimer);
+        if(dayRolloverTimer) clearInterval(dayRolloverTimer);
+      }
+      const flash = state.error ? `<div class="error">${state.error}</div>` : (state.message ? `<div class="success">${state.message}</div>` : "");
+      if(path === "/login" || !state.me){
+        root.innerHTML = `
+          <div class="app-shell login-wrap">
+            <div class="panel">
+              <div class="badge">Fitness Platform</div>
+              <h2 style="margin-top:12px">Login</h2>
+              <p class="subtle">Admin creates client accounts and clients use their own username/password to access intake, plan, and logging.</p>
+              <form class="grid" style="margin-top:18px" id="login-form">
+                <label><span>Username</span><input name="username" required/></label>
+                <label><span>Password</span><input type="password" name="password" required/></label>
+                <button class="action-btn" type="submit">Login</button>
+              </form>
+              <div style="margin-top:14px">${flash}</div>
+              <div class="${state.needsAdminBootstrap ? "" : "hide"}" style="margin-top:20px">
+                <div class="card">
+                  <h3>Create First Admin</h3>
+                  <form class="grid" id="bootstrap-admin-form" style="margin-top:12px">
+                    <label><span>Admin username</span><input name="username" required/></label>
+                    <label><span>Admin password</span><input type="password" name="password" required/></label>
+                    <button class="ghost-btn" type="submit">Create Admin</button>
+                  </form>
+                </div>
+              </div>
+              <div class="footer-note" style="margin-top:18px">Deploy on Cloudflare Pages/Workers and manage data in D1.</div>
+            </div>
+          </div>
+        `;
+        document.getElementById("login-form").onsubmit = handleLogin;
+        const bootstrapForm = document.getElementById("bootstrap-admin-form");
+        if(bootstrapForm) bootstrapForm.onsubmit = bootstrapAdmin;
+        return;
+      }
+
+      if(state.me.mustChangePassword){
+        root.innerHTML = `
+          <div class="app-shell login-wrap">
+            <div class="panel">
+              <div class="badge">Password Reset Required</div>
+              <h2 style="margin-top:12px">Set a new password</h2>
+              <p class="subtle">You need to change your temporary password before using the app.</p>
+              <form class="grid" id="force-password-form" style="margin-top:18px">
+                <label><span>Current password</span><input type="password" name="currentPassword" required/></label>
+                <label><span>New password</span><input type="password" name="newPassword" required/></label>
+                <button class="action-btn" type="submit">Update Password</button>
+              </form>
+              <div style="margin-top:14px">${flash}</div>
+            </div>
+          </div>
+        `;
+        document.getElementById("force-password-form").onsubmit = async (ev) => {
+          await changePassword(ev);
+          if(!state.error && state.me){
+            state.me.mustChangePassword = false;
+            setRoute(state.me.role === "admin" ? "/admin" : "/app");
+          }
+        };
+        return;
+      }
+
+      const isAdmin = state.me?.role === "admin";
+      const nav = isAdmin ? [
+        ["/admin", "Dashboard"],
+        ...(state.adminClientDetail ? [[state.route, "Client Detail"]] : [])
+      ] : [
+        ["/app", "Home"],
+        ["/app/intake", "Intake"],
+        ["/app/plan", "Plan"],
+        ["/app/log", "Log"]
+      ];
+
+      let content = "";
+      if(isAdmin){
+        if(path === "/admin"){
+          content = `
+            <div class="panel">
+              <div class="toolbar">
+                <div>
+                  <h2>Admin Dashboard</h2>
+                  <p class="subtle">Create client accounts, review plans, and export data.</p>
+                </div>
+                <button class="ghost-btn" id="export-all">Export All to Sheets</button>
+              </div>
+              ${flash}
+              <div class="split" style="margin-top:18px">
+                <div class="card">
+                  <h3>Create Client</h3>
+                  <form class="grid" id="create-client-form" style="margin-top:12px">
+                    <label><span>Full name</span><input name="fullName" required/></label>
+                    <label><span>Username</span><input name="username" required/></label>
+                    <button class="action-btn" type="submit">Create Client</button>
+                  </form>
+                  ${state.draftPassword ? `<div style="margin-top:12px" class="success">Temporary password: <strong>${escapeHtml(state.draftPassword)}</strong></div>` : ""}
+                </div>
+                <div class="card">
+                  <h3>Clients</h3>
+                  ${state.clients.length ? `
+                    <table class="table" style="margin-top:12px">
+                      <thead><tr><th>Name</th><th>Status</th><th>Plan</th><th></th></tr></thead>
+                      <tbody>
+                        ${state.clients.map(client => `
+                          <tr>
+                            <td>${escapeHtml(client.full_name)}<div class="subtle">${escapeHtml(client.username)}</div></td>
+                            <td><span class="pill active">${client.status}</span></td>
+                            <td><span class="pill ${client.plan_status || "draft"}">${client.plan_status || "none"}</span></td>
+                            <td><button class="ghost-btn open-client" data-client-id="${client.id}">Open</button></td>
+                          </tr>
+                        `).join("")}
+                      </tbody>
+                    </table>
+                  ` : `<div class="empty" style="margin-top:12px">No clients yet.</div>`}
+                </div>
+              </div>
+            </div>
+          `;
+        } else if(state.adminClientDetail){
+          const detail = state.adminClientDetail;
+          content = `
+            <div class="panel">
+              <div class="toolbar">
+                <div>
+                  <h2>${escapeHtml(detail.client.full_name)}</h2>
+                  <p class="subtle">${escapeHtml(detail.user.username)} • ${detail.client.status}</p>
+                </div>
+                <div class="inline">
+                  <button class="ghost-btn" id="reset-password">Reset Password</button>
+                  <button class="ghost-btn" id="export-client">Export to Sheets</button>
+                </div>
+              </div>
+              ${flash}
+              ${state.draftPassword ? `<div class="success" style="margin-bottom:12px">Temporary password: <strong>${escapeHtml(state.draftPassword)}</strong></div>` : ""}
+              <div class="grid">
+                <div class="card">
+                  <div class="toolbar"><h3>Intake</h3><button class="ghost-btn" id="generate-plan">Generate Draft</button></div>
+                  <div id="admin-intake-form">${renderIntakeForm(detail.intake?.answers_json || {}, "Save Intake", "return false;", detail.client.id)}</div>
+                </div>
+                <div class="card">
+                  <div class="toolbar">
+                    <h3>Plan Draft</h3>
+                    <div class="inline">
+                      <button class="ghost-btn" id="save-plan">Save Edits</button>
+                      <button class="action-btn" id="publish-plan">${detail.plan?.status === "published" ? "Republish" : "Publish Plan"}</button>
+                      ${detail.plan?.status === "published" ? '<button class="ghost-btn" id="unpublish-plan">Unpublish</button>' : ''}
+                    </div>
+                  </div>
+                  ${renderPlanEditor(state.pendingPlanEdit || normalizeEditablePlan({}))}
+                </div>
+                <div class="card">
+                  <h3>Published Preview</h3>
+                  <div style="margin-top:12px">${renderPlan(detail.plan)}</div>
+                </div>
+                <div class="split">
+                  <div class="card">
+                    <h3>Recent Daily Logs</h3>
+                    ${detail.dailyLogs.length ? `<div class="plan-list" style="margin-top:12px">${detail.dailyLogs.map(log => `<div><strong>${log.log_date}</strong><br/>Calories: ${log.macros_json.calories || 0}, Protein: ${log.macros_json.protein || 0}, Steps: ${log.steps || 0}</div>`).join("")}</div>` : '<div class="empty" style="margin-top:12px">No logs yet.</div>'}
+                  </div>
+                  <div class="card">
+                    <h3>Check-ins</h3>
+                    ${detail.checkins.length ? `<div class="plan-list" style="margin-top:12px">${detail.checkins.map(item => `<div><strong>${item.checkin_date}</strong><br/>Weight: ${item.weight || "-"} • Body fat: ${item.body_fat || "-"}</div>`).join("")}</div>` : '<div class="empty" style="margin-top:12px">No check-ins yet.</div>'}
+                  </div>
+                </div>
+              </div>
+            </div>
+          `;
+        }
+      } else {
+        const app = state.appData || {};
+        const today = new Date().toISOString().slice(0,10);
+        const dailyLog = app.dailyLog || {};
+        const review = app.weeklyReview?.review_json || {};
+        if(path === "/app" || path === "/app/plan"){
+          content = `<div class="panel"><h2>${path === "/app" ? "Client Home" : "Published Plan"}</h2><p class="subtle">${app.client?.full_name || ""}</p>${flash}<div style="margin-top:18px">${renderPlan(app.plan)}</div></div>`;
+        } else if(path === "/app/intake"){
+          content = `<div class="panel"><h2>Intake Form</h2><p class="subtle">Complete this once so the coach can generate and publish your plan.</p>${flash}<div style="margin-top:18px">${renderIntakeForm(app.intake?.answers_json || {}, "Save Intake", "return false;")}</div></div>`;
+        } else if(path === "/app/log"){
+          content = `
+            <div class="panel">
+              <h2>Daily Logging</h2>
+              <p class="subtle">Save meals, workout, hydration, check-ins, and weekly compliance from one place.</p>
+              ${flash}
+              <div class="split" style="margin-top:18px">
+                <div class="card">
+                  <h3>Daily Log</h3>
+                  <div class="subtle" id="autosave-status" style="margin-top:6px">${state.autoSaveStatus || "Changes auto-save while you type."}</div>
+                  <form class="grid" id="daily-log-form" style="margin-top:12px">
+                    <label><span>Date</span><input name="logDate" value="${dailyLog.log_date || today}" required/></label>
+                    <label><span>Breakfast</span><input name="breakfast" value="${escapeHtml(dailyLog.meals_json?.breakfast || "")}"/></label>
+                    <label><span>Lunch</span><input name="lunch" value="${escapeHtml(dailyLog.meals_json?.lunch || "")}"/></label>
+                    <label><span>Dinner</span><input name="dinner" value="${escapeHtml(dailyLog.meals_json?.dinner || "")}"/></label>
+                    <label><span>Snacks</span><input name="snacks" value="${escapeHtml(dailyLog.meals_json?.snacks || "")}"/></label>
+                    <div class="grid cols-2">
+                      <label><span>Calories</span><input name="calories" value="${dailyLog.macros_json?.calories || 0}"/></label>
+                      <label><span>Protein</span><input name="protein" value="${dailyLog.macros_json?.protein || 0}"/></label>
+                      <label><span>Carbs</span><input name="carbs" value="${dailyLog.macros_json?.carbs || 0}"/></label>
+                      <label><span>Fat</span><input name="fat" value="${dailyLog.macros_json?.fat || 0}"/></label>
+                      <label><span>Hydration (L)</span><input name="hydration" value="${dailyLog.hydration || 0}"/></label>
+                      <label><span>Steps</span><input name="steps" value="${dailyLog.steps || 0}"/></label>
+                    </div>
+                    <label><span>Cardio</span><input name="cardio" value="${escapeHtml(dailyLog.cardio || "")}"/></label>
+                    <label><span>Workout Notes</span><input name="workoutNotes" value="${escapeHtml(dailyLog.workout_json?.notes || "")}"/></label>
+                    <label><input type="checkbox" name="workoutCompleted" ${dailyLog.workout_json?.completed ? "checked" : ""}/> Workout completed</label>
+                    <label><span>General notes</span><textarea name="notes">${escapeHtml(dailyLog.notes || "")}</textarea></label>
+                    <button class="action-btn" type="submit">Save Daily Log</button>
+                  </form>
+                </div>
+                <div class="grid">
+                  <div class="card">
+                    <h3>Check-in</h3>
+                    <form class="grid" id="checkin-form" style="margin-top:12px">
+                      <label><span>Date</span><input name="checkinDate" value="${today}" required/></label>
+                      <div class="grid cols-2">
+                        <label><span>Weight</span><input name="weight"/></label>
+                        <label><span>Body fat %</span><input name="bodyFat"/></label>
+                        <label><span>Waist</span><input name="waist"/></label>
+                        <label><span>Hips</span><input name="hips"/></label>
+                      </div>
+                      <label><span>Notes</span><textarea name="checkinNotes"></textarea></label>
+                      <button class="action-btn" type="submit">Save Check-in</button>
+                    </form>
+                  </div>
+                  <div class="card">
+                    <h3>Weekly Review</h3>
+                    <form class="grid" id="review-form" style="margin-top:12px">
+                      <label><span>Week key</span><input name="weekKey" value="${app.weeklyReview?.week_key || currentWeekKey()}"/></label>
+                      <label><input type="checkbox" name="reviewWeight" ${review.weight ? "checked" : ""}/> Weight tracked</label>
+                      <label><input type="checkbox" name="reviewWorkouts" ${review.workouts ? "checked" : ""}/> Workouts completed</label>
+                      <label><input type="checkbox" name="reviewProtein" ${review.protein ? "checked" : ""}/> Protein target hit</label>
+                      <label><input type="checkbox" name="reviewSleep" ${review.sleep ? "checked" : ""}/> Sleep target hit</label>
+                      <button class="action-btn" type="submit">Save Weekly Review</button>
+                    </form>
+                  </div>
+                  <div class="card">
+                    <h3>Account</h3>
+                    <form class="grid" id="password-form" style="margin-top:12px">
+                      <label><span>Current password</span><input type="password" name="currentPassword" required/></label>
+                      <label><span>New password</span><input type="password" name="newPassword" required/></label>
+                      <button class="ghost-btn" type="submit">Change Password</button>
+                    </form>
+                  </div>
+                </div>
+              </div>
+            </div>
+          `;
+        }
+      }
+
+      root.innerHTML = `
+        <div class="app-shell">
+          <div class="topbar">
+            <div class="brand">
+              <div class="badge">${state.me?.role === "admin" ? "Admin" : "Client"} Workspace</div>
+              <h1>${state.me?.role === "admin" ? "Fitness Admin Console" : "Fitness Client App"}</h1>
+              <p>${state.me?.username || ""}${state.me?.mustChangePassword ? " • password change required" : ""}</p>
+            </div>
+            <div class="top-actions">
+              <button class="ghost-btn" id="logout-btn">Logout</button>
+            </div>
+          </div>
+          <div class="layout">
+            <aside class="sidebar">
+              <h3>Navigation</h3>
+              <nav>
+                ${nav.map(([href, label]) => `<button class="nav-btn ${path === href ? "active" : ""}" data-nav="${href}">${label}</button>`).join("")}
+              </nav>
+            </aside>
+            <main>${content}</main>
+          </div>
+        </div>
+      `;
+
+      document.querySelectorAll("[data-nav]").forEach(btn => btn.onclick = () => setRoute(btn.dataset.nav));
+      document.getElementById("logout-btn").onclick = logout;
+
+      if(isAdmin && path === "/admin"){
+        document.getElementById("create-client-form").onsubmit = createClient;
+        document.getElementById("export-all").onclick = () => exportSheets(null);
+        document.querySelectorAll(".open-client").forEach(btn => btn.onclick = () => setRoute("/admin/clients/" + btn.dataset.clientId));
+      }
+
+      if(isAdmin && state.adminClientDetail){
+        const clientId = state.adminClientDetail.client.id;
+        const intakeForm = document.querySelector("#admin-intake-form form");
+        if(intakeForm) intakeForm.onsubmit = (ev) => saveIntake(ev, clientId);
+        document.getElementById("reset-password").onclick = () => resetPassword(clientId);
+        document.getElementById("generate-plan").onclick = () => generatePlan(clientId);
+        document.getElementById("save-plan").onclick = () => {
+          savePlanEdits(clientId);
+        };
+        document.getElementById("publish-plan").onclick = () => publishPlan(clientId, true);
+        const unpublish = document.getElementById("unpublish-plan");
+        if(unpublish) unpublish.onclick = () => publishPlan(clientId, false);
+        document.getElementById("export-client").onclick = () => exportSheets(clientId);
+        const planEditForm = document.getElementById("plan-edit-form");
+        if(planEditForm){
+          planEditForm.oninput = () => collectPlanEditForm();
+          planEditForm.onchange = () => collectPlanEditForm();
+        }
+      }
+
+      if(!isAdmin && path === "/app/intake"){
+        const intakeForm = document.querySelector("main form");
+        if(intakeForm) intakeForm.onsubmit = saveIntake;
+      }
+      if(!isAdmin && path === "/app/log"){
+        document.getElementById("daily-log-form").onsubmit = saveDailyLog;
+        document.getElementById("checkin-form").onsubmit = saveCheckin;
+        document.getElementById("review-form").onsubmit = saveWeeklyReview;
+        document.getElementById("password-form").onsubmit = changePassword;
+        attachDailyLogEnhancements();
+      }
+    }
+
+    bootstrap();
+  </script>
+</body>
+</html>
