@@ -576,6 +576,21 @@
       }
     }
 
+    async function deleteClient(clientId, clientName){
+      const confirmed = window.confirm(`Delete ${clientName} and all associated data? This cannot be undone.`);
+      if(!confirmed) return;
+      try{
+        await api("/api/admin/clients/" + clientId, {
+          method: "DELETE"
+        });
+        state.adminClientDetail = null;
+        setFlash("Client deleted.");
+        setRoute("/admin");
+      }catch(err){
+        setFlash(err.message, true);
+      }
+    }
+
     function renderPlan(plan, options = {}){
       const showMeta = options.showMeta !== false;
       const coachPublished = options.coachPublished === true;
@@ -1073,6 +1088,7 @@
                   <button class="ghost-btn" id="toggle-intake-edit">${detail.client.status === "intake_open" ? "Lock Intake" : "Enable Intake Edit"}</button>
                   <button class="ghost-btn" id="reset-password">Reset Password</button>
                   <button class="ghost-btn" id="export-client">Export to Sheets</button>
+                  <button class="ghost-btn danger" id="delete-client">Delete Client</button>
                 </div>
               </div>
               ${flash}
@@ -1304,6 +1320,7 @@
         const unpublish = document.getElementById("unpublish-plan");
         if(unpublish) unpublish.onclick = () => publishPlan(clientId, false);
         document.getElementById("export-client").onclick = () => exportSheets(clientId);
+        document.getElementById("delete-client").onclick = () => deleteClient(clientId, state.adminClientDetail.client.full_name);
         const planEditForm = document.getElementById("plan-edit-form");
         if(planEditForm){
           planEditForm.oninput = () => collectPlanEditForm();
