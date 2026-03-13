@@ -978,6 +978,7 @@
         } else {
           await api("/api/app/intake", { method: "POST", body: JSON.stringify({ answers: payload, complete: true }) });
         }
+        clearIntakeDraft(clientId || null);
         setFlash("Intake saved.");
         await bootstrapForRoute();
       }catch(err){
@@ -1523,9 +1524,75 @@
       return edited;
     }
 
+    /* ── INTAKE DRAFT: localStorage auto-save ── */
+    function intakeDraftKey(clientId){
+      return clientId ? `intake_draft_client_${clientId}` : `intake_draft_self`;
+    }
+
+    function saveIntakeDraft(form, clientId){
+      try{
+        const data = new FormData(form);
+        const draft = {};
+        for(const section of intakeSections){
+          draft[section.key] = {};
+          for(const [field] of section.fields){
+            draft[section.key][field] = data.get(section.key + "." + field) || "";
+          }
+        }
+        localStorage.setItem(intakeDraftKey(clientId), JSON.stringify(draft));
+        const indicator = document.getElementById("intake-draft-indicator");
+        if(indicator){
+          indicator.textContent = "Draft saved locally · " + new Date().toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" });
+          indicator.style.color = "var(--teal)";
+        }
+      }catch(e){}
+    }
+
+    function loadIntakeDraft(clientId){
+      try{
+        const raw = localStorage.getItem(intakeDraftKey(clientId));
+        return raw ? JSON.parse(raw) : null;
+      }catch(e){ return null; }
+    }
+
+    function clearIntakeDraft(clientId){
+      try{ localStorage.removeItem(intakeDraftKey(clientId)); }catch(e){}
+    }
+
+    function attachIntakeDraftSave(formEl, clientId){
+      if(!formEl) return;
+      const draft = loadIntakeDraft(clientId);
+      const indicator = document.getElementById("intake-draft-indicator");
+      if(draft){
+        // Restore saved draft values into form fields
+        let restored = 0;
+        for(const section of intakeSections){
+          for(const [field] of section.fields){
+            const input = formEl.querySelector(`[name="${section.key}.${field}"]`);
+            const savedVal = draft[section.key]?.[field];
+            if(input && savedVal && !input.value){
+              input.value = savedVal;
+              restored++;
+            }
+          }
+        }
+        if(indicator && restored > 0){
+          indicator.textContent = `↩ Draft restored (${restored} fields) · saved locally`;
+          indicator.style.color = "var(--gold)";
+        }
+      }
+      // Auto-save on every keystroke
+      formEl.querySelectorAll("input, textarea").forEach(field => {
+        field.addEventListener("input", () => saveIntakeDraft(formEl, clientId));
+      });
+    }
+
     function renderIntakeForm(values = {}, submitLabel, onSubmit, clientId){
       return `
-        <form class="grid" onsubmit="${onSubmit}">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;min-height:18px">
+          <span id="intake-draft-indicator" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-3)">Typing auto-saves a local draft — safe if connection drops.</span>
+        </div>
+        <form class="grid" onsubmit="${onSubmit}" data-intake-clientid="${escapeAttr(clientId || '')}">
           ${intakeSections.map(section => `
             <div class="card">
               <h3>${section.title}</h3>
@@ -2118,7 +2185,7 @@
                 <div class="card">
                   <div class="toolbar">
                     <h3>📋 Client Intake</h3>
-                    <button class="ghost-btn" id="generate-plan">⚡ Regenerate Plan from Intake</button>
+                    <button class="ghost-btn" id="generate-plan">${detail.plan ? "⚡ Regenerate Plan from Intake" : "⚡ Generate Plan"}</button>
                   </div>
                   <div id="admin-intake-form">${renderIntakeForm(detail.intake?.answers_json || {}, "Save Intake", "return false;", detail.client.id)}</div>
                 </div>
@@ -2411,7 +2478,10 @@
       if(isAdmin && state.adminClientDetail){
         const clientId = state.adminClientDetail.client.id;
         const intakeForm = document.querySelector("#admin-intake-form form");
-        if(intakeForm) intakeForm.onsubmit = (ev) => saveIntake(ev, clientId);
+        if(intakeForm){
+          intakeForm.onsubmit = (ev) => saveIntake(ev, clientId);
+          attachIntakeDraftSave(intakeForm, clientId);
+        }
         document.getElementById("toggle-intake-edit").onclick = () => toggleIntakeEdit(clientId, state.adminClientDetail.client.status !== "intake_open");
         document.getElementById("reset-password").onclick = () => resetPassword(clientId);
         document.getElementById("generate-plan").onclick = () => generatePlan(clientId);
@@ -2430,7 +2500,10 @@
 
       if(!isAdmin && path === "/app/intake"){
         const intakeForm = document.querySelector("main form");
-        if(intakeForm && state.appData?.canEditIntake) intakeForm.onsubmit = saveIntake;
+        if(intakeForm && state.appData?.canEditIntake){
+          intakeForm.onsubmit = saveIntake;
+          attachIntakeDraftSave(intakeForm, null);
+        }
         if(intakeForm && !state.appData?.canEditIntake){
           intakeForm.querySelectorAll("input, textarea, button").forEach(node => node.disabled = true);
         }
