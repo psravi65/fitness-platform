@@ -41,6 +41,7 @@ Cloudflare-hosted multi-tenant fitness coaching platform with:
 7. Deploy:
    - `npx wrangler deploy`
    - deployment retry
+   - fresh build trigger
 
 ## Notes
 
