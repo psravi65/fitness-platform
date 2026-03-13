@@ -160,6 +160,12 @@ async function handleApi(request, env, ctx, url) {
     return json(await getAdminClientDetail(env, adminClientMatch[1]));
   }
 
+  if (adminClientMatch && method === "DELETE") {
+    assertRole(session, "admin");
+    await env.DB.prepare(`DELETE FROM clients WHERE id = ?`).bind(adminClientMatch[1]).run();
+    return json({ ok: true });
+  }
+
   const resetPasswordMatch = url.pathname.match(/^\/api\/admin\/clients\/([^/]+)\/reset-password$/);
   if (resetPasswordMatch && method === "POST") {
     assertRole(session, "admin");
