@@ -346,6 +346,7 @@ async function getClientBootstrap(env, clientId) {
   const today = new Date().toISOString().slice(0, 10);
   const dailyLog = await env.DB.prepare(`SELECT * FROM daily_logs WHERE client_id = ? AND log_date = ?`).bind(clientId, today).first();
   const weeklyReview = await env.DB.prepare(`SELECT * FROM weekly_reviews WHERE client_id = ? ORDER BY updated_at DESC LIMIT 1`).bind(clientId).first();
+  const recentWorkoutLogs = await selectJsonRows(env, `SELECT * FROM daily_logs WHERE client_id = ? AND TRIM(COALESCE(workout_json, '')) <> '' ORDER BY log_date DESC LIMIT 20`, [clientId]);
   return {
     client,
     intake,
@@ -353,7 +354,8 @@ async function getClientBootstrap(env, clientId) {
     canEditIntake: client?.status === "intake_open" || !intake?.completed_at,
     dailyLog: parseStoredJsonRow(dailyLog),
     weeklyReview: parseStoredJsonRow(weeklyReview),
-    checkins: await selectJsonRows(env, `SELECT * FROM checkins WHERE client_id = ? ORDER BY checkin_date DESC LIMIT 10`, [clientId])
+    checkins: await selectJsonRows(env, `SELECT * FROM checkins WHERE client_id = ? ORDER BY checkin_date DESC LIMIT 10`, [clientId]),
+    recentWorkoutLogs
   };
 }
 
