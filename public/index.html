@@ -4,135 +4,724 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Fitness Platform</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
   <style>
     :root{
-      --bg:#08111f;
-      --panel:#13233b;
-      --panel-soft:#0e1b2d;
-      --line:#243856;
-      --text:#eef4ff;
-      --muted:#8ea2c7;
-      --orange:#ff9350;
-      --teal:#37d6c7;
-      --lime:#91db5d;
-      --red:#ff6b6b;
-      --gold:#ffd166;
+      --bg:#060d18;
+      --surface:#0b1628;
+      --surface-2:#0f1e35;
+      --surface-3:#142642;
+      --surface-4:#192e50;
+      --border:#1a2e48;
+      --border-bright:#243d60;
+      --text:#e2eeff;
+      --text-2:#7a9abf;
+      --text-3:#3d5a7e;
+      --accent:#ff5c28;
+      --accent-dim:rgba(255,92,40,.12);
+      --accent-border:rgba(255,92,40,.28);
+      --teal:#00cba8;
+      --teal-dim:rgba(0,203,168,.1);
+      --teal-border:rgba(0,203,168,.25);
+      --lime:#5fde7a;
+      --lime-dim:rgba(95,222,122,.1);
+      --gold:#ffc940;
+      --gold-dim:rgba(255,201,64,.1);
+      --red:#ff4056;
+      --red-dim:rgba(255,64,86,.1);
+      --purple:#9d7cf4;
+      --radius:14px;
+      --radius-lg:20px;
+      --radius-xl:26px;
     }
     *{box-sizing:border-box;margin:0;padding:0}
+    html{scroll-behavior:smooth}
     body{
       min-height:100vh;
-      font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif;
+      font-family:'Plus Jakarta Sans',sans-serif;
       color:var(--text);
-      background:
-        radial-gradient(circle at top left, rgba(255,147,80,.14), transparent 26%),
-        radial-gradient(circle at top right, rgba(55,214,199,.12), transparent 24%),
-        linear-gradient(180deg,#08111f 0%,#0c1526 100%);
+      background:var(--bg);
+      background-image:
+        radial-gradient(ellipse 60% 40% at 0% 0%, rgba(255,92,40,.07) 0%, transparent 60%),
+        radial-gradient(ellipse 50% 40% at 100% 0%, rgba(0,203,168,.06) 0%, transparent 55%),
+        radial-gradient(ellipse 40% 60% at 50% 100%, rgba(26,46,72,.4) 0%, transparent 70%);
+      -webkit-font-smoothing:antialiased;
     }
-    a{color:inherit}
+    a{color:inherit;text-decoration:none}
     button,input,select,textarea{font:inherit}
-    .app-shell{max-width:1200px;margin:0 auto;padding:24px}
-    .topbar{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:24px}
-    .brand h1{font-size:32px;line-height:1}
-    .brand p{color:var(--muted);margin-top:8px}
+
+    /* ═══════════════════════════════════════════════
+       SCROLLBAR
+    ═══════════════════════════════════════════════ */
+    ::-webkit-scrollbar{width:4px;height:4px}
+    ::-webkit-scrollbar-track{background:transparent}
+    ::-webkit-scrollbar-thumb{background:var(--border-bright);border-radius:2px}
+
+    /* ═══════════════════════════════════════════════
+       LAYOUT SHELL (ADMIN)
+    ═══════════════════════════════════════════════ */
+    .app-shell{max-width:1280px;margin:0 auto;padding:28px 24px}
+    .topbar{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:32px}
+    .brand{}
+    .brand-eyebrow{display:inline-flex;align-items:center;gap:6px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--teal);letter-spacing:.14em;text-transform:uppercase;margin-bottom:10px}
+    .brand-eyebrow::before{content:'';width:18px;height:1px;background:var(--teal);opacity:.5}
+    .brand h1{font-family:'Outfit',sans-serif;font-size:28px;font-weight:800;letter-spacing:-.02em;color:var(--text)}
+    .brand-sub{margin-top:4px;font-size:13px;color:var(--text-2)}
     .top-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-    .badge{display:inline-flex;align-items:center;padding:6px 10px;border-radius:999px;background:rgba(55,214,199,.08);border:1px solid rgba(55,214,199,.3);color:var(--teal);font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
-    .layout{display:grid;grid-template-columns:260px 1fr;gap:20px}
-    .sidebar,.panel{background:linear-gradient(180deg, rgba(19,35,59,.96), rgba(12,21,38,.96));border:1px solid var(--line);border-radius:22px;box-shadow:0 22px 48px rgba(0,0,0,.24)}
-    .sidebar{padding:18px;align-self:start;position:sticky;top:24px}
-    .sidebar nav{display:grid;gap:8px;margin-top:14px}
-    .nav-btn,.action-btn,.ghost-btn{border:none;border-radius:14px;padding:12px 14px;cursor:pointer;text-align:left}
-    .nav-btn{background:transparent;color:var(--muted);font-weight:700}
-    .nav-btn.active{background:rgba(255,147,80,.12);color:var(--orange);border:1px solid rgba(255,147,80,.25)}
-    .panel{padding:20px}
-    .panel h2{font-size:24px;margin-bottom:8px}
-    .subtle{color:var(--muted)}
+    .layout{display:grid;grid-template-columns:256px 1fr;gap:22px}
+
+    /* ═══════════════════════════════════════════════
+       SIDEBAR
+    ═══════════════════════════════════════════════ */
+    .sidebar{
+      background:linear-gradient(180deg, var(--surface) 0%, rgba(11,22,40,.92) 100%);
+      border:1px solid var(--border);
+      border-radius:var(--radius-xl);
+      padding:20px 14px;
+      align-self:start;
+      position:sticky;
+      top:24px;
+    }
+    .sidebar-label{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.14em;padding:0 10px;margin-bottom:8px}
+    .sidebar nav{display:grid;gap:4px;margin-top:10px}
+    .nav-btn{
+      border:1px solid transparent;
+      border-radius:var(--radius);
+      padding:11px 14px;
+      cursor:pointer;
+      text-align:left;
+      background:transparent;
+      color:var(--text-2);
+      font-weight:600;
+      font-size:13.5px;
+      transition:all .15s ease;
+      display:flex;
+      align-items:center;
+      gap:9px;
+    }
+    .nav-btn:hover{background:var(--surface-2);color:var(--text);border-color:var(--border)}
+    .nav-btn.active{
+      background:var(--accent-dim);
+      color:var(--accent);
+      border-color:var(--accent-border);
+    }
+    .nav-btn .nav-icon{font-size:15px;opacity:.8;min-width:18px}
+
+    /* ═══════════════════════════════════════════════
+       PANEL
+    ═══════════════════════════════════════════════ */
+    .panel{
+      background:linear-gradient(160deg, var(--surface) 0%, var(--surface-2) 100%);
+      border:1px solid var(--border);
+      border-radius:var(--radius-xl);
+      padding:26px;
+    }
+    .panel-title{font-family:'Outfit',sans-serif;font-size:22px;font-weight:800;letter-spacing:-.02em}
+    .panel-sub{margin-top:4px;font-size:13px;color:var(--text-2)}
+
+    /* ═══════════════════════════════════════════════
+       BUTTONS
+    ═══════════════════════════════════════════════ */
+    .action-btn,.ghost-btn,.nav-btn{border:none;cursor:pointer}
+    .action-btn{
+      display:inline-flex;align-items:center;gap:7px;
+      background:linear-gradient(135deg, var(--accent) 0%, #ff7a40 100%);
+      color:#fff;
+      font-weight:700;
+      font-size:13.5px;
+      padding:11px 20px;
+      border-radius:var(--radius);
+      border:1px solid rgba(255,255,255,.08);
+      transition:all .15s ease;
+      box-shadow:0 4px 16px rgba(255,92,40,.28);
+      white-space:nowrap;
+    }
+    .action-btn:hover{transform:translateY(-1px);box-shadow:0 6px 22px rgba(255,92,40,.4)}
+    .action-btn:active{transform:translateY(0)}
+    .ghost-btn{
+      display:inline-flex;align-items:center;gap:7px;
+      background:var(--surface-2);
+      border:1px solid var(--border-bright);
+      color:var(--text);
+      font-weight:600;
+      font-size:13.5px;
+      padding:11px 18px;
+      border-radius:var(--radius);
+      transition:all .15s ease;
+      white-space:nowrap;
+    }
+    .ghost-btn:hover{background:var(--surface-3);border-color:var(--border-bright)}
+    .ghost-btn.teal{color:var(--teal);border-color:var(--teal-border);background:var(--teal-dim)}
+    .ghost-btn.teal:hover{background:rgba(0,203,168,.18)}
+    .danger{
+      background:var(--red-dim) !important;
+      border-color:rgba(255,64,86,.3) !important;
+      color:var(--red) !important;
+      box-shadow:none !important;
+    }
+    .danger:hover{background:rgba(255,64,86,.2) !important}
+
+    /* ═══════════════════════════════════════════════
+       FORMS
+    ═══════════════════════════════════════════════ */
+    label{display:block}
+    label span{
+      display:block;
+      font-family:'JetBrains Mono',monospace;
+      font-size:10px;
+      color:var(--text-2);
+      margin-bottom:7px;
+      text-transform:uppercase;
+      letter-spacing:.1em;
+      font-weight:500;
+    }
+    input,select,textarea{
+      width:100%;
+      background:var(--surface-2);
+      color:var(--text);
+      border:1px solid var(--border-bright);
+      border-radius:var(--radius);
+      padding:11px 14px;
+      outline:none;
+      font-size:14px;
+      transition:border-color .15s ease, box-shadow .15s ease;
+    }
+    input:focus,select:focus,textarea:focus{
+      border-color:var(--accent);
+      box-shadow:0 0 0 3px rgba(255,92,40,.1);
+    }
+    input[readonly]{color:var(--text-2);background:var(--surface)}
+    textarea{min-height:100px;resize:vertical;line-height:1.6}
+    select{cursor:pointer}
+    select option{background:var(--surface-2)}
+    input[type="checkbox"]{
+      width:auto;
+      width:16px;height:16px;
+      accent-color:var(--accent);
+      cursor:pointer;
+      vertical-align:middle;
+      margin-right:6px;
+    }
+    code{font-family:'JetBrains Mono',monospace;font-size:12px;background:var(--surface-3);padding:2px 6px;border-radius:6px;color:var(--gold)}
+
+    /* ═══════════════════════════════════════════════
+       CARDS & GRIDS
+    ═══════════════════════════════════════════════ */
     .grid{display:grid;gap:16px}
     .grid.cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}
     .grid.cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}
-    .card{background:var(--panel-soft);border:1px solid var(--line);border-radius:18px;padding:16px}
-    .stat{font-size:28px;font-weight:900;margin-top:6px}
-    label{display:block}
-    label span{display:block;font-size:12px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em}
-    input,select,textarea{width:100%;background:#0c1628;color:var(--text);border:1px solid var(--line);border-radius:12px;padding:12px 13px;outline:none}
-    textarea{min-height:110px;resize:vertical}
-    .action-btn{background:linear-gradient(90deg,var(--orange),#ffb06c);color:#09101d;font-weight:900}
-    .ghost-btn{background:transparent;border:1px solid var(--line);color:var(--text);font-weight:700}
-    .danger{background:linear-gradient(90deg,#ff6b6b,#ff9a7d);color:#190707}
-    .success{color:var(--lime)}
-    .notice{padding:12px 14px;border-radius:14px;border:1px solid var(--line);background:#0c1628}
-    .notice.success{background:rgba(145,219,93,.08);border-color:rgba(145,219,93,.28)}
-    .notice.warning{background:rgba(255,209,102,.08);border-color:rgba(255,209,102,.28);color:#ffe5a5}
-    .error{color:var(--red)}
-    .table{width:100%;border-collapse:collapse}
-    .table th,.table td{padding:12px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
-    .table th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
-    .pill{display:inline-block;padding:4px 8px;border-radius:999px;font-size:12px;font-weight:800}
-    .pill.draft{background:rgba(255,209,102,.12);color:var(--gold)}
-    .pill.published{background:rgba(145,219,93,.12);color:var(--lime)}
-    .pill.active{background:rgba(55,214,199,.12);color:var(--teal)}
-    .pill.alert{background:rgba(255,107,107,.12);color:var(--red)}
-    .toolbar{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:18px}
+    .grid.cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+    .card{
+      background:var(--surface-2);
+      border:1px solid var(--border);
+      border-radius:var(--radius-lg);
+      padding:18px;
+      transition:border-color .15s ease;
+    }
+    .card:hover{border-color:var(--border-bright)}
+    .card h3{font-family:'Outfit',sans-serif;font-size:15px;font-weight:700;margin-bottom:10px}
+    .stat{
+      font-family:'Outfit',sans-serif;
+      font-size:36px;
+      font-weight:900;
+      margin-top:6px;
+      letter-spacing:-.02em;
+    }
+    .stat-label{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-2);text-transform:uppercase;letter-spacing:.1em}
+    .split{display:grid;grid-template-columns:1.15fr .85fr;gap:16px}
+    .toolbar{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:20px}
     .inline{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-    .split{display:grid;grid-template-columns:1.1fr .9fr;gap:16px}
+    .subtle{color:var(--text-2);font-size:13px;line-height:1.6}
     .hide{display:none!important}
-    .empty{padding:32px 18px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:16px}
-    pre{white-space:pre-wrap;word-break:break-word;background:#0b1424;border:1px solid var(--line);padding:14px;border-radius:14px;color:#d8e8ff}
+
+    /* ═══════════════════════════════════════════════
+       BADGES / PILLS
+    ═══════════════════════════════════════════════ */
+    .badge{
+      display:inline-flex;align-items:center;gap:5px;
+      padding:5px 12px;
+      border-radius:999px;
+      background:var(--teal-dim);
+      border:1px solid var(--teal-border);
+      color:var(--teal);
+      font-family:'JetBrains Mono',monospace;
+      font-size:10px;
+      font-weight:700;
+      letter-spacing:.1em;
+      text-transform:uppercase;
+    }
+    .pill{
+      display:inline-flex;align-items:center;gap:4px;
+      padding:3px 9px;
+      border-radius:999px;
+      font-family:'JetBrains Mono',monospace;
+      font-size:10px;
+      font-weight:700;
+      letter-spacing:.05em;
+    }
+    .pill::before{content:'';width:5px;height:5px;border-radius:50%;background:currentColor;opacity:.7}
+    .pill.draft{background:var(--gold-dim);color:var(--gold);border:1px solid rgba(255,201,64,.2)}
+    .pill.published{background:var(--lime-dim);color:var(--lime);border:1px solid rgba(95,222,122,.2)}
+    .pill.active{background:var(--teal-dim);color:var(--teal);border:1px solid var(--teal-border)}
+    .pill.alert{background:var(--red-dim);color:var(--red);border:1px solid rgba(255,64,86,.2)}
+    .pill.none{background:var(--surface-3);color:var(--text-3);border:1px solid var(--border)}
+
+    /* ═══════════════════════════════════════════════
+       NOTICES / FLASH
+    ═══════════════════════════════════════════════ */
+    .notice{
+      padding:14px 16px;
+      border-radius:var(--radius);
+      border:1px solid var(--border);
+      background:var(--surface-2);
+      font-size:13.5px;
+      line-height:1.5;
+    }
+    .notice.success{background:rgba(95,222,122,.07);border-color:rgba(95,222,122,.25);color:#a8edbc}
+    .notice.warning{background:rgba(255,201,64,.07);border-color:rgba(255,201,64,.22);color:#ffe9a0}
+    .success{color:var(--lime)}
+    .error{color:var(--red);font-size:13.5px}
+    .flash-success{
+      background:rgba(95,222,122,.09);
+      border:1px solid rgba(95,222,122,.25);
+      color:#a8edbc;
+      padding:12px 16px;
+      border-radius:var(--radius);
+      font-size:13.5px;
+      display:flex;
+      align-items:center;
+      gap:9px;
+    }
+    .flash-error{
+      background:rgba(255,64,86,.09);
+      border:1px solid rgba(255,64,86,.25);
+      color:#ff8a96;
+      padding:12px 16px;
+      border-radius:var(--radius);
+      font-size:13.5px;
+      display:flex;
+      align-items:center;
+      gap:9px;
+    }
+
+    /* ═══════════════════════════════════════════════
+       TABLE
+    ═══════════════════════════════════════════════ */
+    .table{width:100%;border-collapse:collapse}
+    .table th{
+      font-family:'JetBrains Mono',monospace;
+      font-size:9px;
+      color:var(--text-3);
+      text-transform:uppercase;
+      letter-spacing:.12em;
+      padding:10px 12px;
+      border-bottom:1px solid var(--border);
+      text-align:left;
+      font-weight:500;
+    }
+    .table td{
+      padding:13px 12px;
+      border-bottom:1px solid var(--border);
+      vertical-align:middle;
+      font-size:13.5px;
+    }
+    .table tbody tr{transition:background .1s ease}
+    .table tbody tr:hover{background:var(--surface-3)}
+    .table td .name{font-weight:700;color:var(--text)}
+    .table td .username{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-3);margin-top:2px}
+
+    /* ═══════════════════════════════════════════════
+       EMPTY STATE
+    ═══════════════════════════════════════════════ */
+    .empty{
+      padding:36px 20px;
+      text-align:center;
+      color:var(--text-3);
+      border:1px dashed var(--border-bright);
+      border-radius:var(--radius-lg);
+      font-size:13px;
+      line-height:1.6;
+    }
+    .empty::before{display:block;font-size:28px;margin-bottom:10px;opacity:.5}
+
+    /* ═══════════════════════════════════════════════
+       PRE / CODE BLOCKS
+    ═══════════════════════════════════════════════ */
+    pre{
+      white-space:pre-wrap;word-break:break-word;
+      background:var(--surface);
+      border:1px solid var(--border);
+      padding:16px;border-radius:var(--radius);
+      color:#a8c4e8;
+      font-family:'JetBrains Mono',monospace;
+      font-size:12px;line-height:1.7;
+    }
+
+    /* ═══════════════════════════════════════════════
+       PLAN DISPLAY
+    ═══════════════════════════════════════════════ */
     .plan-section{display:grid;gap:10px}
-    .plan-list{display:grid;gap:8px}
-    .plan-list div{background:#0c1628;border:1px solid var(--line);border-radius:12px;padding:10px 12px}
-    .login-wrap{max-width:460px;margin:8vh auto 0}
-    .footer-note{font-size:12px;color:var(--muted)}
-    .client-shell{display:grid;gap:18px}
-    .hero{padding:20px;border-radius:22px;background:linear-gradient(135deg, rgba(255,147,80,.18), rgba(55,214,199,.12));border:1px solid rgba(255,255,255,.08)}
-    .hero h2{margin-bottom:6px}
-    .cta-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
-    .segmented{display:grid;gap:10px}
-    .mobile-only{display:none}
-    .client-app{max-width:480px;margin:0 auto;min-height:100vh;background:#0d1117;color:#c8d0e8;padding-bottom:78px}
-    .client-header{position:sticky;top:0;z-index:40;background:#0d1117;border-bottom:1px solid #1e2a3a;padding:12px 16px}
+    .plan-list{display:grid;gap:6px;margin-top:8px}
+    .plan-list-item{
+      background:var(--surface-3);
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:9px 13px;
+      font-size:13px;
+      line-height:1.5;
+      transition:border-color .12s;
+    }
+    .plan-list-item:hover{border-color:var(--border-bright)}
+    .plan-section-head{
+      font-family:'JetBrains Mono',monospace;
+      font-size:10px;
+      color:var(--text-2);
+      text-transform:uppercase;
+      letter-spacing:.1em;
+      margin-bottom:4px;
+    }
+    .macro-chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+    .macro-chip{
+      background:var(--surface-3);
+      border:1px solid var(--border-bright);
+      border-radius:10px;
+      padding:8px 14px;
+      font-family:'JetBrains Mono',monospace;
+      font-size:11px;
+    }
+    .macro-chip strong{display:block;font-size:20px;font-weight:800;margin-bottom:2px;font-family:'Outfit',sans-serif}
+
+    /* ═══════════════════════════════════════════════
+       LOGIN PAGE
+    ═══════════════════════════════════════════════ */
+    .login-wrap{max-width:440px;margin:10vh auto 0}
+    .login-logo{text-align:center;margin-bottom:32px}
+    .login-logo-mark{
+      display:inline-flex;align-items:center;justify-content:center;
+      width:56px;height:56px;
+      background:linear-gradient(135deg, var(--accent), #ff7a40);
+      border-radius:16px;
+      font-size:26px;
+      margin-bottom:14px;
+      box-shadow:0 8px 24px rgba(255,92,40,.3);
+    }
+    .login-logo h2{font-family:'Outfit',sans-serif;font-size:26px;font-weight:900;letter-spacing:-.02em}
+    .login-logo p{color:var(--text-2);font-size:13px;margin-top:4px}
+    .login-card{
+      background:linear-gradient(160deg, var(--surface) 0%, var(--surface-2) 100%);
+      border:1px solid var(--border-bright);
+      border-radius:var(--radius-xl);
+      padding:32px;
+      box-shadow:0 24px 60px rgba(0,0,0,.4);
+    }
+    .footer-note{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-3);text-align:center;margin-top:16px;line-height:1.6}
+
+    /* ═══════════════════════════════════════════════
+       DIVIDER
+    ═══════════════════════════════════════════════ */
+    .divider{height:1px;background:var(--border);margin:20px 0}
+    .divider-label{
+      display:flex;align-items:center;gap:12px;
+      font-family:'JetBrains Mono',monospace;font-size:10px;
+      color:var(--text-3);text-transform:uppercase;letter-spacing:.1em;
+      margin:20px 0;
+    }
+    .divider-label::before,.divider-label::after{content:'';flex:1;height:1px;background:var(--border)}
+
+    /* ═══════════════════════════════════════════════
+       SECTION HEADER
+    ═══════════════════════════════════════════════ */
+    .section-eyebrow{
+      font-family:'JetBrains Mono',monospace;
+      font-size:9px;
+      color:var(--accent);
+      text-transform:uppercase;
+      letter-spacing:.14em;
+      margin-bottom:6px;
+    }
+    .section-title{font-family:'Outfit',sans-serif;font-size:18px;font-weight:800;letter-spacing:-.01em}
+    .section-sub{font-size:12.5px;color:var(--text-2);margin-top:3px;line-height:1.5}
+
+    /* ═══════════════════════════════════════════════
+       STAT CARDS (ADMIN DASHBOARD)
+    ═══════════════════════════════════════════════ */
+    .stat-card{
+      background:var(--surface-2);
+      border:1px solid var(--border);
+      border-radius:var(--radius-lg);
+      padding:20px;
+      transition:border-color .15s ease, transform .15s ease;
+    }
+    .stat-card:hover{border-color:var(--border-bright);transform:translateY(-1px)}
+    .stat-card .stat-icon{font-size:22px;margin-bottom:12px}
+    .stat-card .stat-value{font-family:'Outfit',sans-serif;font-size:38px;font-weight:900;letter-spacing:-.03em;line-height:1}
+    .stat-card .stat-name{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--text-2);text-transform:uppercase;letter-spacing:.12em;margin-top:6px}
+
+    /* ═══════════════════════════════════════════════
+       REVIEW FLAGS (NEEDS REVIEW)
+    ═══════════════════════════════════════════════ */
+    .review-client-row{
+      background:var(--surface-3);
+      border:1px solid var(--border);
+      border-radius:var(--radius);
+      padding:14px 16px;
+      display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;
+      transition:border-color .15s;
+    }
+    .review-client-row:hover{border-color:var(--border-bright)}
+    .review-client-name{font-weight:700;font-size:14px}
+    .review-client-user{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-3);margin-top:2px}
+    .review-flags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+
+    /* ═══════════════════════════════════════════════
+       TEMP PASSWORD BOX
+    ═══════════════════════════════════════════════ */
+    .temp-password-box{
+      background:rgba(95,222,122,.08);
+      border:1px solid rgba(95,222,122,.22);
+      border-radius:var(--radius);
+      padding:14px 16px;
+      margin-top:14px;
+    }
+    .temp-password-label{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--lime);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px}
+    .temp-password-value{font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:700;color:#cff5d8;letter-spacing:.06em}
+
+    /* ═══════════════════════════════════════════════
+       CLIENT APP (MOBILE)
+    ═══════════════════════════════════════════════ */
+    .client-app{
+      max-width:480px;
+      margin:0 auto;
+      min-height:100vh;
+      background:#060d18;
+      color:var(--text);
+      padding-bottom:82px;
+    }
+    .client-header{
+      position:sticky;top:0;z-index:40;
+      background:rgba(6,13,24,.94);
+      backdrop-filter:blur(20px);
+      border-bottom:1px solid var(--border);
+      padding:13px 16px;
+    }
     .client-header-row{display:flex;justify-content:space-between;align-items:center;gap:12px}
-    .client-kicker{font-size:9px;color:var(--orange);letter-spacing:2px;text-transform:uppercase;font-family:ui-monospace,monospace}
-    .client-title{font-size:22px;font-weight:800;color:#f0f4ff}
-    .client-subtitle{font-size:10px;color:#6b7a99;font-family:ui-monospace,monospace}
-    .client-chip{display:inline-flex;align-items:center;gap:6px;margin-top:4px;background:#111827;border:1px solid rgba(55,214,199,.2);border-radius:999px;padding:4px 10px;font-size:10px;color:var(--teal);font-family:ui-monospace,monospace}
-    .client-main{padding:12px}
-    .client-panel{background:#111827;border:1px solid #1e2a3a;border-radius:14px;padding:14px}
-    .client-stat-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
-    .client-stat-card{background:#111827;border-radius:10px;padding:10px 8px;text-align:center;border:1px solid #1e2a3a}
-    .client-stat-value{font-size:16px;font-weight:800;font-family:ui-monospace,monospace}
-    .client-stat-label{font-size:8px;color:#6b7a99;text-transform:uppercase;letter-spacing:.08em;margin-top:2px}
+    .client-brand{display:flex;align-items:center;gap:10px}
+    .client-brand-icon{
+      width:34px;height:34px;
+      background:linear-gradient(135deg, var(--accent), #ff7a40);
+      border-radius:10px;
+      display:flex;align-items:center;justify-content:center;
+      font-size:17px;
+      box-shadow:0 4px 12px rgba(255,92,40,.3);
+    }
+    .client-brand-text{}
+    .client-kicker{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--accent);letter-spacing:.14em;text-transform:uppercase}
+    .client-title{font-family:'Outfit',sans-serif;font-size:18px;font-weight:900;color:var(--text);letter-spacing:-.01em;line-height:1}
+    .client-header-right{text-align:right}
+    .client-date{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-3)}
+    .client-chip{
+      display:inline-flex;align-items:center;gap:5px;
+      margin-top:3px;
+      background:var(--surface-2);
+      border:1px solid var(--border-bright);
+      border-radius:999px;
+      padding:3px 9px;
+      font-family:'JetBrains Mono',monospace;
+      font-size:9px;
+      color:var(--text-2);
+    }
+    .chip-dot{width:6px;height:6px;border-radius:50%;display:inline-block}
+    .client-logout{
+      margin-top:5px;
+      background:transparent;
+      border:1px solid var(--border);
+      color:var(--text-3);
+      font-size:10px;
+      padding:4px 9px;
+      border-radius:8px;
+      cursor:pointer;
+      font-family:'JetBrains Mono',monospace;
+      transition:all .15s;
+    }
+    .client-logout:hover{border-color:var(--border-bright);color:var(--text-2)}
+    .client-main{padding:14px}
+
+    /* CLIENT STAT GRID */
+    .client-stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-bottom:12px}
+    .client-stat-card{
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:14px;
+      padding:12px 8px;
+      text-align:center;
+      transition:border-color .15s;
+    }
+    .client-stat-icon{font-size:20px;margin-bottom:6px}
+    .client-stat-value{font-family:'Outfit',sans-serif;font-size:13px;font-weight:800;line-height:1}
+    .client-stat-label{font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--text-3);text-transform:uppercase;letter-spacing:.08em;margin-top:3px}
+
+    /* CLIENT PANELS */
+    .client-panel{
+      background:var(--surface);
+      border:1px solid var(--border);
+      border-radius:16px;
+      padding:16px;
+      margin-bottom:10px;
+    }
+    .client-panel h3{font-family:'Outfit',sans-serif;font-size:15px;font-weight:800;margin-bottom:10px}
+    .client-panel-eyebrow{
+      font-family:'JetBrains Mono',monospace;
+      font-size:9px;
+      color:var(--text-3);
+      text-transform:uppercase;
+      letter-spacing:.12em;
+      margin-bottom:5px;
+    }
+    .client-hero{
+      background:linear-gradient(135deg, rgba(255,92,40,.15) 0%, rgba(0,203,168,.08) 100%);
+      border-color:rgba(255,92,40,.2) !important;
+    }
+    .client-hero-name{font-family:'Outfit',sans-serif;font-size:24px;font-weight:900;color:var(--text);letter-spacing:-.02em;margin-top:4px}
+    .client-hero-sub{font-size:13px;color:var(--text-2);margin-top:4px;line-height:1.5}
+    .client-hero-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+    .client-hero-btn{
+      padding:10px 16px;
+      border-radius:12px;
+      font-weight:700;
+      font-size:12.5px;
+      cursor:pointer;
+      border:none;
+      transition:all .15s;
+    }
+    .client-hero-btn.primary{background:linear-gradient(135deg,var(--accent),#ff7a40);color:#fff;box-shadow:0 4px 14px rgba(255,92,40,.3)}
+    .client-hero-btn.primary:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(255,92,40,.4)}
+    .client-hero-btn.secondary{background:var(--surface-2);border:1px solid var(--border-bright);color:var(--text-2)}
+    .client-hero-btn.secondary:hover{background:var(--surface-3);color:var(--text)}
     .client-list{display:grid;gap:8px}
-    .client-list-item{background:#0d1117;border:1px solid #1e2a3a;border-radius:12px;padding:10px 12px}
+    .client-list-item{
+      background:var(--surface-2);
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:11px 14px;
+      transition:border-color .12s;
+    }
+    .client-list-item:hover{border-color:var(--border-bright)}
+    .client-list-item-head{font-size:13px;font-weight:700;color:var(--text)}
+    .client-list-item-sub{font-size:12px;color:var(--text-2);margin-top:3px;line-height:1.5}
+
+    /* BOTTOM TABS */
+    .bottom-tabs{
+      position:fixed;
+      left:50%;transform:translateX(-50%);
+      bottom:0;
+      width:100%;max-width:480px;
+      background:rgba(6,13,24,.96);
+      backdrop-filter:blur(20px);
+      border-top:1px solid var(--border);
+      display:flex;
+      z-index:50;
+      padding:6px 8px 10px;
+      gap:4px;
+    }
+    .bottom-tab{
+      flex:1;
+      border:none;
+      background:transparent;
+      padding:8px 0 4px;
+      cursor:pointer;
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      gap:3px;
+      border-radius:12px;
+      transition:all .15s ease;
+      color:var(--text-3);
+    }
+    .bottom-tab:hover{background:var(--surface-2);color:var(--text-2)}
+    .bottom-tab.active{background:var(--accent-dim);color:var(--accent)}
+    .bottom-tab-icon{font-size:17px}
+    .bottom-tab-label{font-family:'JetBrains Mono',monospace;font-size:8px;text-transform:uppercase;letter-spacing:.07em}
+
+    /* ═══════════════════════════════════════════════
+       WORKOUT CARDS
+    ═══════════════════════════════════════════════ */
     .set-toggle-wrap{position:relative;display:inline-flex}
     .set-check{position:absolute;opacity:0;pointer-events:none}
-    .set-toggle-label{min-width:48px;text-align:center;touch-action:manipulation;-webkit-tap-highlight-color:transparent;user-select:none;display:inline-flex;align-items:center;justify-content:center}
-    .set-toggle-wrap.active .set-toggle-label{background:rgba(255,147,80,.18);border-color:rgba(255,147,80,.45);color:#ffb06c}
-    .workout-submit-bar{position:sticky;bottom:74px;background:rgba(8,12,18,.94);backdrop-filter:blur(10px);border:1px solid #1e2a3a;border-radius:16px;padding:10px 12px;display:grid;gap:10px}
-    .workout-status{font-size:11px;color:#8ea2c7;font-family:ui-monospace,monospace}
-    .progress-chart{display:grid;gap:12px}
-    .progress-meta{display:flex;justify-content:space-between;gap:10px;align-items:flex-end}
-    .progress-metric{display:grid;gap:4px}
-    .progress-metric strong{font-size:20px;color:#f0f4ff}
-    .progress-chart svg{width:100%;height:auto;display:block}
-    .progress-chart-labels{display:grid;grid-template-columns:repeat(auto-fit,minmax(58px,1fr));gap:6px}
-    .progress-chart-labels div{font-size:10px;color:#6b7a99;text-align:center;font-family:ui-monospace,monospace}
-    .exercise-history{display:grid;gap:6px;margin-top:8px}
+    .set-toggle-label{
+      min-width:44px;
+      text-align:center;
+      touch-action:manipulation;
+      -webkit-tap-highlight-color:transparent;
+      user-select:none;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      padding:9px 11px;
+      border-radius:10px;
+      background:var(--surface-3);
+      border:1px solid var(--border);
+      color:var(--text-3);
+      font-weight:700;
+      font-size:12px;
+      cursor:pointer;
+      transition:all .12s ease;
+    }
+    .set-toggle-wrap.active .set-toggle-label{
+      background:rgba(95,222,122,.14);
+      border-color:rgba(95,222,122,.35);
+      color:var(--lime);
+    }
+    .exercise-card{
+      background:var(--surface-2);
+      border:1px solid var(--border);
+      border-radius:14px;
+      padding:14px;
+      transition:border-color .12s;
+    }
+    .exercise-card:hover{border-color:var(--border-bright)}
+    .exercise-name{font-size:14px;font-weight:700;color:var(--text)}
+    .exercise-meta{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-3);margin-top:3px}
+    .exercise-history{display:grid;gap:5px;margin-top:10px}
     .exercise-history-row{display:flex;justify-content:space-between;gap:10px;align-items:center}
     .exercise-sparkline{width:100%;height:30px;display:block}
-    .exercise-history-meta{font-size:10px;color:#6b7a99;font-family:ui-monospace,monospace}
-    .bottom-tabs{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:480px;background:#080c12;border-top:1px solid #1e2a3a;display:flex;z-index:50}
-    .bottom-tab{flex:1;border:none;background:transparent;padding:8px 0;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px;border-top:2px solid transparent;color:#3a4560}
-    .bottom-tab.active{border-top-color:var(--orange);color:var(--orange)}
-    .bottom-tab-icon{font-size:15px}
-    .bottom-tab-label{font-size:8px;text-transform:uppercase;letter-spacing:.07em;font-family:ui-monospace,monospace}
-    @media (max-width: 900px){
-      .layout,.split,.grid.cols-2,.grid.cols-3{grid-template-columns:1fr}
-      .sidebar{position:static}
+    .exercise-history-meta{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-3)}
+    .workout-submit-bar{
+      position:sticky;bottom:74px;
+      background:rgba(6,13,24,.95);
+      backdrop-filter:blur(14px);
+      border:1px solid var(--border-bright);
+      border-radius:16px;
+      padding:12px 14px;
+      display:grid;gap:10px;
+      margin:10px 0;
+    }
+    .workout-status{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-2)}
+
+    /* ═══════════════════════════════════════════════
+       PROGRESS CHART
+    ═══════════════════════════════════════════════ */
+    .progress-chart{display:grid;gap:14px}
+    .progress-meta{display:flex;justify-content:space-between;gap:10px;align-items:flex-end}
+    .progress-metric{display:grid;gap:4px}
+    .progress-metric strong{font-family:'Outfit',sans-serif;font-size:22px;font-weight:900;color:var(--text)}
+    .progress-chart svg{width:100%;height:auto;display:block}
+    .progress-chart-labels{display:grid;grid-template-columns:repeat(auto-fit,minmax(52px,1fr));gap:4px;margin-top:4px}
+    .progress-chart-labels div{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--text-3);text-align:center}
+
+    /* ═══════════════════════════════════════════════
+       RESPONSIVE
+    ═══════════════════════════════════════════════ */
+    .mobile-only{display:none}
+    @media (max-width:940px){
+      .layout,.split,.grid.cols-2,.grid.cols-3,.grid.cols-4{grid-template-columns:1fr}
+      .sidebar{position:static;border-radius:var(--radius-lg)}
       .app-shell{padding:14px}
-      .panel{padding:16px}
-      .brand h1{font-size:24px}
-      .cta-grid{grid-template-columns:1fr}
+      .panel{padding:18px}
+      .brand h1{font-size:22px}
       .mobile-only{display:block}
+      .stat-card .stat-value{font-size:30px}
     }
   </style>
 </head>
@@ -788,34 +1377,35 @@
       const metaTone = meta.source === "gemini" ? "success" : "warning";
       return el`
         <div class="grid">
-          ${coachPublished ? `<div class="notice success"><strong>Coach published your plan.</strong> Follow this structure and keep logging progress daily.</div>` : ""}
+          ${coachPublished ? `<div class="notice success">✅ <strong>Coach published your plan.</strong> Follow this structure and keep logging progress daily.</div>` : ""}
           ${showMeta && meta.reason ? `
             <div class="notice ${metaTone}">
-              <strong>${meta.source === "gemini" ? "Gemini" : "Fallback"}:</strong> ${escapeHtml(meta.reason)}
+              <strong>${meta.source === "gemini" ? "⚡ Gemini" : "⚙ Fallback"}:</strong> ${escapeHtml(meta.reason)}
               ${meta.model ? `<div class="subtle" style="margin-top:6px">Model: ${escapeHtml(meta.model)}</div>` : ""}
               ${meta.details ? `<div class="subtle" style="margin-top:6px;white-space:pre-wrap">${escapeHtml(meta.details)}</div>` : ""}
             </div>
           ` : ""}
-          <div class="card"><div class="subtle">Summary</div><div class="plan-list"><div>${data.profileSummary || ""}</div></div></div>
-          <div class="grid cols-3">
-            <div class="card"><div class="subtle">Calories</div><div class="stat">${data.calorieTarget || "-"}</div></div>
-            <div class="card"><div class="subtle">Protein</div><div class="stat">${data.macros?.protein || "-"}</div></div>
-            <div class="card"><div class="subtle">Carbs / Fat</div><div class="stat">${data.macros?.carbs || "-"} / ${data.macros?.fat || "-"}</div></div>
+          <div class="card"><div class="plan-section-head">Profile Summary</div><p style="font-size:13.5px;line-height:1.6;margin-top:4px">${data.profileSummary || "—"}</p></div>
+          <div class="macro-chips">
+            <div class="macro-chip"><strong>${data.calorieTarget || "—"}</strong>Calories</div>
+            <div class="macro-chip"><strong>${data.macros?.protein || "—"}</strong>Protein</div>
+            <div class="macro-chip"><strong>${data.macros?.carbs || "—"}</strong>Carbs</div>
+            <div class="macro-chip"><strong>${data.macros?.fat || "—"}</strong>Fat</div>
           </div>
           <div class="split">
             <div class="card plan-section">
-              <h3>Meals</h3>
-              <div class="subtle">Choose any 1 option for each meal. These are alternatives, not items to eat together.</div>
-              ${(data.mealOptions || []).map(section => `<div><strong>${section.meal}</strong><div class="plan-list">${(section.options || []).map(opt => `<div>${escapeHtml(formatMealOptionLine(opt))}</div>`).join("")}</div></div>`).join("")}
+              <h3>🥗 Meals</h3>
+              <div class="subtle" style="margin-bottom:10px">Choose any 1 option per meal — these are alternatives, not all to eat together.</div>
+              ${(data.mealOptions || []).map(section => `<div style="margin-bottom:10px"><div class="plan-section-head">${section.meal}</div><div class="plan-list">${(section.options || []).map(opt => `<div class="plan-list-item">${escapeHtml(formatMealOptionLine(opt))}</div>`).join("")}</div></div>`).join("")}
             </div>
             <div class="card plan-section">
-              <h3>Training</h3>
-              ${(data.workoutSplit || []).map(day => `<div><strong>${day.day}</strong><div class="plan-list">${day.exercises.map(ex => `<div>${ex}</div>`).join("")}</div></div>`).join("")}
+              <h3>🏋️ Training</h3>
+              ${(data.workoutSplit || []).map(day => `<div style="margin-bottom:10px"><div class="plan-section-head">${day.day}</div><div class="plan-list">${day.exercises.map(ex => `<div class="plan-list-item">${ex}</div>`).join("")}</div></div>`).join("")}
             </div>
           </div>
           <div class="split">
-            <div class="card"><h3>Supplements</h3><div class="plan-list">${(data.supplements || []).map(item => `<div>${item}</div>`).join("")}</div></div>
-            <div class="card"><h3>Success Rules</h3><div class="plan-list">${(data.successRules || []).map(item => `<div>${item}</div>`).join("")}</div></div>
+            <div class="card"><h3>💊 Supplements</h3><div class="plan-list">${(data.supplements || []).map(item => `<div class="plan-list-item">${item}</div>`).join("")}</div></div>
+            <div class="card"><h3>✅ Success Rules</h3><div class="plan-list">${(data.successRules || []).map(item => `<div class="plan-list-item">${item}</div>`).join("")}</div></div>
           </div>
         </div>
       `;
@@ -847,7 +1437,7 @@
     function renderListEditor(name, items, placeholder){
       return `
         <textarea name="${name}" placeholder="${escapeAttr(placeholder)}">${escapeHtml((items || []).join("\n"))}</textarea>
-        <div class="footer-note">One item per line.</div>
+        <div class="footer-note" style="margin-top:5px">One item per line.</div>
       `;
     }
 
@@ -855,7 +1445,7 @@
       const meals = (plan.mealOptions || []).map(section => `${section.meal}: ${(section.options || []).map(formatMealOptionLine).join(" | ")}`).join("\n");
       const workouts = (plan.workoutSplit || []).map(section => `${section.day}: ${(section.exercises || []).join(" | ")}`).join("\n");
       return `
-        <form class="grid" id="plan-edit-form" style="margin-top:12px">
+        <form class="grid" id="plan-edit-form" style="margin-top:14px">
           <label>
             <span>Profile Summary</span>
             <textarea name="profileSummary">${escapeHtml(plan.profileSummary || "")}</textarea>
@@ -871,12 +1461,12 @@
           <label>
             <span>Meal Options</span>
             <textarea name="mealOptions" placeholder="Breakfast: Oats [390 kcal, P32 C42 F9] | Eggs [430 kcal, P28 C38 F18]">${escapeHtml(meals)}</textarea>
-            <div class="footer-note">One line per meal. Use <code>Meal: item [kcal, P, C, F] | item [kcal, P, C, F]</code>.</div>
+            <div class="footer-note" style="margin-top:5px">One line per meal. Use <code>Meal: item [kcal, P, C, F] | item</code>.</div>
           </label>
           <label>
             <span>Workout Split</span>
             <textarea name="workoutSplit" placeholder="Day 1: Squat | Lunges | Leg Curl">${escapeHtml(workouts)}</textarea>
-            <div class="footer-note">One line per day. Use <code>Day: exercise | exercise | exercise</code>.</div>
+            <div class="footer-note" style="margin-top:5px">One line per day. Use <code>Day: exercise | exercise</code>.</div>
           </label>
           <label>
             <span>Weekly Meal Structure</span>
@@ -1083,27 +1673,27 @@
         const history = getExerciseHistory(state.appData?.recentWorkoutLogs, exercise.id);
         const lastWeight = history.length ? history[history.length - 1].weight : "";
         return `
-          <div class="client-list-item">
+          <div class="exercise-card">
             <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
-              <div>
-                <div style="font-size:13px;font-weight:700;color:#f0f4ff">${escapeHtml(exercise.name)}</div>
-                <div class="subtle" style="margin-top:2px">${exercise.sets} sets • ${escapeHtml(exercise.reps)} reps${exercise.target ? ` • Target ${escapeHtml(exercise.target)}` : ""}</div>
+              <div style="flex:1">
+                <div class="exercise-name">${escapeHtml(exercise.name)}</div>
+                <div class="exercise-meta">${exercise.sets} sets · ${escapeHtml(exercise.reps)} reps${exercise.target ? ` · Target ${escapeHtml(exercise.target)}` : ""}</div>
               </div>
-              <input name="weight_${exercise.id}" value="${escapeAttr(entry.weight || "")}" placeholder="Weight" style="width:92px;font-family:ui-monospace,monospace"/>
+              <input name="weight_${exercise.id}" value="${escapeAttr(entry.weight || "")}" placeholder="kg" style="width:80px;font-family:'JetBrains Mono',monospace;font-size:13px;padding:9px 11px"/>
             </div>
-            <div class="exercise-history">
+            <div class="exercise-history" style="margin-top:10px">
               <div class="exercise-history-row">
-                <div class="exercise-history-meta">Last weight: ${lastWeight ? `${escapeHtml(String(lastWeight))} kg` : "No history yet"}</div>
+                <div class="exercise-history-meta">Last: ${lastWeight ? `${escapeHtml(String(lastWeight))} kg` : "No history yet"}</div>
                 <div class="exercise-history-meta">${history.length ? `${history.length} session${history.length === 1 ? "" : "s"}` : ""}</div>
               </div>
               ${renderExerciseSparkline(history)}
             </div>
             <input type="hidden" name="sets_${exercise.id}" value="${escapeAttr(JSON.stringify(entry.sets || Array(exercise.sets).fill(false)))}"/>
-            <div class="inline" style="margin-top:10px">
+            <div class="inline" style="margin-top:11px;flex-wrap:wrap;gap:7px">
               ${Array.from({ length: exercise.sets }).map((_, idx) => `
                 <label class="set-toggle-wrap ${entry.sets?.[idx] ? "active" : ""}">
                   <input class="set-check" type="checkbox" name="set_${exercise.id}_${idx}" data-exercise-id="${exercise.id}" data-set-index="${idx}" ${entry.sets?.[idx] ? "checked" : ""}/>
-                  <span class="ghost-btn set-toggle-label" style="padding:10px 12px">S${idx + 1}</span>
+                  <span class="set-toggle-label">S${idx + 1}</span>
                 </label>
               `).join("")}
             </div>
@@ -1204,18 +1794,24 @@
         <div class="progress-chart">
           <div class="progress-meta">
             <div class="progress-metric">
-              <span class="subtle">Latest weekly weight</span>
+              <span class="subtle">Latest weight</span>
               <strong>${latest.weight.toFixed(1)} kg</strong>
             </div>
             <div class="progress-metric" style="text-align:right">
               <span class="subtle">Change</span>
-              <strong style="color:${Number(delta) <= 0 ? '#22c55e' : '#ff9350'}">${delta > 0 ? "+" : ""}${delta} kg</strong>
+              <strong style="color:${Number(delta) <= 0 ? 'var(--lime)' : 'var(--accent)'}">${delta > 0 ? "+" : ""}${delta} kg</strong>
             </div>
           </div>
           <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Weekly weight progression">
-            <line x1="18" y1="${height - 18}" x2="${width - 18}" y2="${height - 18}" stroke="#243856" stroke-width="1"/>
-            <polyline fill="none" stroke="#ff9350" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="${polyline}"></polyline>
-            ${points.map(point => `<circle cx="${point.x}" cy="${point.y}" r="4" fill="#37d6c7" stroke="#0d1117" stroke-width="2"></circle>`).join("")}
+            <defs>
+              <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#ff5c28" stop-opacity="0.3"/>
+                <stop offset="100%" stop-color="#ff5c28" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <line x1="18" y1="${height - 18}" x2="${width - 18}" y2="${height - 18}" stroke="#1a2e48" stroke-width="1"/>
+            <polyline fill="none" stroke="#ff5c28" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${polyline}"></polyline>
+            ${points.map(point => `<circle cx="${point.x}" cy="${point.y}" r="4" fill="#00cba8" stroke="#060d18" stroke-width="2"></circle>`).join("")}
           </svg>
           <div class="progress-chart-labels">
             ${series.map(item => `<div>${escapeHtml(item.label)}<br/>${item.weight.toFixed(1)}</div>`).join("")}
@@ -1258,11 +1854,11 @@
       }).join(" ");
       return `
         <svg class="exercise-sparkline" viewBox="0 0 ${width} ${height}" role="img" aria-label="Exercise progression">
-          <polyline fill="none" stroke="#37d6c7" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${points}"></polyline>
+          <polyline fill="none" stroke="#00cba8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" points="${points}"></polyline>
           ${history.map((item, index) => {
             const x = 8 + (index * ((width - 16) / Math.max(1, history.length - 1)));
             const y = height - 7 - (((item.weight - min) / Math.max(1, max - min || 1)) * (height - 14));
-            return `<circle cx="${x}" cy="${y}" r="2.5" fill="#ff9350"></circle>`;
+            return `<circle cx="${x}" cy="${y}" r="2.5" fill="#ff5c28"></circle>`;
           }).join("")}
         </svg>
       `;
@@ -1292,6 +1888,22 @@
       }[path] || "•";
     }
 
+    function clientTabLabel(path){
+      return {
+        "/app": "Home",
+        "/app/intake": "Intake",
+        "/app/plan": "Plan",
+        "/app/diet": "Diet",
+        "/app/workout": "Workout"
+      }[path] || path;
+    }
+
+    function flashHtml(){
+      if(state.error) return `<div class="flash-error">⚠ ${state.error}</div>`;
+      if(state.message) return `<div class="flash-success">✓ ${state.message}</div>`;
+      return "";
+    }
+
     function render(){
       const root = document.getElementById("app");
       const path = state.route;
@@ -1299,32 +1911,38 @@
         if(dailyLogAutoSaveTimer) clearTimeout(dailyLogAutoSaveTimer);
         if(dayRolloverTimer) clearInterval(dayRolloverTimer);
       }
-      const flash = state.error ? `<div class="error">${state.error}</div>` : (state.message ? `<div class="success">${state.message}</div>` : "");
+      const flash = flashHtml();
+
+      /* ─── LOGIN / BOOTSTRAP ─── */
       if(path === "/login" || !state.me){
         root.innerHTML = `
           <div class="app-shell login-wrap">
-            <div class="panel">
-              <div class="badge">Fitness Platform</div>
-              <h2 style="margin-top:12px">Login</h2>
-              <p class="subtle">Admin creates client accounts and clients use their own username/password to access intake, plan, and logging.</p>
-              <form class="grid" style="margin-top:18px" id="login-form">
-                <label><span>Username</span><input name="username" required/></label>
-                <label><span>Password</span><input type="password" name="password" required/></label>
-                <button class="action-btn" type="submit">Login</button>
+            <div class="login-logo">
+              <div class="login-logo-mark">🔥</div>
+              <h2>Fitness Platform</h2>
+              <p>Sign in to your account to continue</p>
+            </div>
+            <div class="login-card">
+              <form class="grid" id="login-form">
+                <label><span>Username</span><input name="username" required autocomplete="username"/></label>
+                <label><span>Password</span><input type="password" name="password" required autocomplete="current-password"/></label>
+                <button class="action-btn" type="submit" style="width:100%;justify-content:center">Sign In →</button>
               </form>
-              <div style="margin-top:14px">${flash}</div>
-              <div class="${state.needsAdminBootstrap ? "" : "hide"}" style="margin-top:20px">
+              <div style="margin-top:16px">${flash}</div>
+              ${state.needsAdminBootstrap ? `
+                <div class="divider-label" style="margin:24px 0 20px">First Time Setup</div>
                 <div class="card">
                   <h3>Create First Admin</h3>
-                  <form class="grid" id="bootstrap-admin-form" style="margin-top:12px">
+                  <p class="subtle" style="margin-bottom:14px">No admin exists yet. Create one to get started.</p>
+                  <form class="grid" id="bootstrap-admin-form">
                     <label><span>Admin username</span><input name="username" required/></label>
                     <label><span>Admin password</span><input type="password" name="password" required/></label>
-                    <button class="ghost-btn" type="submit">Create Admin</button>
+                    <button class="ghost-btn" type="submit" style="width:100%;justify-content:center">Create Admin Account</button>
                   </form>
                 </div>
-              </div>
-              <div class="footer-note" style="margin-top:18px">Deploy on Cloudflare Pages/Workers and manage data in D1.</div>
+              ` : ""}
             </div>
+            <div class="footer-note">Powered by Cloudflare Workers + D1</div>
           </div>
         `;
         document.getElementById("login-form").onsubmit = handleLogin;
@@ -1333,19 +1951,22 @@
         return;
       }
 
+      /* ─── FORCE PASSWORD CHANGE ─── */
       if(state.me.mustChangePassword){
         root.innerHTML = `
           <div class="app-shell login-wrap">
-            <div class="panel">
-              <div class="badge">Password Reset Required</div>
-              <h2 style="margin-top:12px">Set a new password</h2>
-              <p class="subtle">You need to change your temporary password before using the app.</p>
-              <form class="grid" id="force-password-form" style="margin-top:18px">
+            <div class="login-logo">
+              <div class="login-logo-mark">🔑</div>
+              <h2>Set New Password</h2>
+              <p>You need to change your temporary password before continuing</p>
+            </div>
+            <div class="login-card">
+              <form class="grid" id="force-password-form">
                 <label><span>Current password</span><input type="password" name="currentPassword" required/></label>
                 <label><span>New password</span><input type="password" name="newPassword" required/></label>
-                <button class="action-btn" type="submit">Update Password</button>
+                <button class="action-btn" type="submit" style="width:100%;justify-content:center">Update Password →</button>
               </form>
-              <div style="margin-top:14px">${flash}</div>
+              <div style="margin-top:16px">${flash}</div>
             </div>
           </div>
         `;
@@ -1373,303 +1994,349 @@
       ];
 
       let content = "";
+
       if(isAdmin){
+        /* ─── ADMIN DASHBOARD ─── */
         if(path === "/admin"){
           const review = reviewSummary(state.clients);
+          const flaggedClients = state.clients.filter(c => (c.reviewFlags || []).length > 0);
           content = `
             <div class="panel">
               <div class="toolbar">
                 <div>
-                  <h2>Admin Dashboard</h2>
-                  <p class="subtle">Create client accounts, review plans, and export data.</p>
+                  <div class="section-eyebrow">Overview</div>
+                  <div class="section-title">Admin Dashboard</div>
+                  <div class="section-sub">Manage clients, review plans, and export data.</div>
                 </div>
-                <button class="ghost-btn" id="export-all">Export All to Sheets</button>
+                <button class="ghost-btn teal" id="export-all">↗ Export All to Sheets</button>
               </div>
               ${flash}
-              <div class="grid cols-4" style="margin-top:18px">
-                <div class="card"><div class="subtle">Needs Review</div><div class="stat">${review.needsReview}</div></div>
-                <div class="card"><div class="subtle">Needs Publish</div><div class="stat">${review.needsPublish}</div></div>
-                <div class="card"><div class="subtle">New Notes</div><div class="stat">${review.newNotes}</div></div>
-                <div class="card"><div class="subtle">Inactive 3+ Days</div><div class="stat">${review.inactive}</div></div>
-              </div>
-              <div class="card" style="margin-top:18px">
-                <div class="toolbar">
-                  <h3>Needs Review</h3>
-                  <div class="subtle">Open these clients first.</div>
+              <div class="grid cols-4" style="margin-top:20px">
+                <div class="stat-card">
+                  <div class="stat-icon">🔔</div>
+                  <div class="stat-value">${review.needsReview}</div>
+                  <div class="stat-name">Needs Review</div>
                 </div>
-                ${state.clients.filter(client => (client.reviewFlags || []).length > 0).length ? `
-                  <div class="plan-list">
-                    ${state.clients.filter(client => (client.reviewFlags || []).length > 0).map(client => `
-                      <div>
-                        <strong>${escapeHtml(client.full_name)}</strong>
-                        <div class="subtle">${escapeHtml(client.username)}</div>
-                        <div style="margin-top:8px" class="inline">
-                          ${(client.reviewFlags || []).map(flag => `<span class="pill alert">${escapeHtml(flag)}</span>`).join("")}
+                <div class="stat-card">
+                  <div class="stat-icon">📤</div>
+                  <div class="stat-value">${review.needsPublish}</div>
+                  <div class="stat-name">Needs Publish</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-icon">📝</div>
+                  <div class="stat-value">${review.newNotes}</div>
+                  <div class="stat-name">New Notes</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-icon">💤</div>
+                  <div class="stat-value">${review.inactive}</div>
+                  <div class="stat-name">Inactive 3+ Days</div>
+                </div>
+              </div>
+
+              ${flaggedClients.length ? `
+                <div style="margin-top:24px">
+                  <div class="section-eyebrow" style="margin-bottom:10px">Action Required</div>
+                  <div class="grid">
+                    ${flaggedClients.map(client => `
+                      <div class="review-client-row">
+                        <div>
+                          <div class="review-client-name">${escapeHtml(client.full_name)}</div>
+                          <div class="review-client-user">@${escapeHtml(client.username)}</div>
+                          <div class="review-flags">
+                            ${(client.reviewFlags || []).map(flag => `<span class="pill alert">${escapeHtml(flag)}</span>`).join("")}
+                          </div>
                         </div>
-                        <div style="margin-top:10px"><button class="ghost-btn open-client" data-client-id="${client.id}">Open</button></div>
+                        <button class="ghost-btn open-client" data-client-id="${client.id}">Open →</button>
                       </div>
                     `).join("")}
                   </div>
-                ` : `<div class="empty">No clients need review right now.</div>`}
-              </div>
-              <div class="split" style="margin-top:18px">
+                </div>
+              ` : ""}
+
+              <div class="split" style="margin-top:24px">
                 <div class="card">
-                  <h3>Create Client</h3>
-                  <form class="grid" id="create-client-form" style="margin-top:12px">
-                    <label><span>Full name</span><input name="fullName" required/></label>
-                    <label><span>Username</span><input name="username" required/></label>
+                  <h3>➕ Add New Client</h3>
+                  <form class="grid" id="create-client-form" style="margin-top:4px">
+                    <label><span>Full name</span><input name="fullName" required placeholder="e.g. Priya Sharma"/></label>
+                    <label><span>Username</span><input name="username" required placeholder="e.g. priya.sharma"/></label>
                     <button class="action-btn" type="submit">Create Client</button>
                   </form>
-                  ${state.draftPassword ? `<div style="margin-top:12px" class="success">Temporary password: <strong>${escapeHtml(state.draftPassword)}</strong></div>` : ""}
+                  ${state.draftPassword ? `
+                    <div class="temp-password-box">
+                      <div class="temp-password-label">⚡ Temporary Password — save this now</div>
+                      <div class="temp-password-value">${escapeHtml(state.draftPassword)}</div>
+                    </div>
+                  ` : ""}
                 </div>
                 <div class="card">
-                  <h3>Clients</h3>
+                  <h3>👥 All Clients (${state.clients.length})</h3>
                   ${state.clients.length ? `
-                    <table class="table" style="margin-top:12px">
-                      <thead><tr><th>Name</th><th>Status</th><th>Plan</th><th>Review</th><th></th></tr></thead>
+                    <table class="table" style="margin-top:10px">
+                      <thead><tr><th>Client</th><th>Status</th><th>Plan</th><th></th></tr></thead>
                       <tbody>
                         ${state.clients.map(client => `
                           <tr>
-                            <td>${escapeHtml(client.full_name)}<div class="subtle">${escapeHtml(client.username)}</div></td>
-                            <td><span class="pill active">${formatClientStatus(client.status)}</span></td>
-                            <td><span class="pill ${client.plan_status || "draft"}">${client.plan_status || "none"}</span></td>
                             <td>
-                              <div class="inline">
-                                ${(client.reviewFlags || []).slice(0, 2).map(flag => `<span class="pill alert">${escapeHtml(flag)}</span>`).join("")}
-                              </div>
+                              <div class="name">${escapeHtml(client.full_name)}</div>
+                              <div class="username">@${escapeHtml(client.username)}</div>
                             </td>
-                            <td><button class="ghost-btn open-client" data-client-id="${client.id}">Open</button></td>
+                            <td><span class="pill active">${formatClientStatus(client.status)}</span></td>
+                            <td><span class="pill ${client.plan_status === 'published' ? 'published' : client.plan_status === 'draft' ? 'draft' : 'none'}">${client.plan_status || "none"}</span></td>
+                            <td><button class="ghost-btn open-client" data-client-id="${client.id}" style="padding:7px 12px;font-size:12px">Open →</button></td>
                           </tr>
                         `).join("")}
                       </tbody>
                     </table>
-                  ` : `<div class="empty" style="margin-top:12px">No clients yet.</div>`}
+                  ` : `<div class="empty" style="margin-top:12px">No clients yet. Create one above.</div>`}
                 </div>
               </div>
             </div>
           `;
+
+        /* ─── ADMIN CLIENT DETAIL ─── */
         } else if(state.adminClientDetail){
           const detail = state.adminClientDetail;
           content = `
             <div class="panel">
               <div class="toolbar">
                 <div>
-                  <h2>${escapeHtml(detail.client.full_name)}</h2>
-                  <p class="subtle">${escapeHtml(detail.user.username)} • ${formatClientStatus(detail.client.status)}</p>
+                  <div class="section-eyebrow">Client</div>
+                  <div class="section-title">${escapeHtml(detail.client.full_name)}</div>
+                  <div class="section-sub">@${escapeHtml(detail.user.username)} · <span class="pill ${detail.client.status === 'intake_open' ? 'alert' : 'active'}" style="vertical-align:middle">${formatClientStatus(detail.client.status)}</span></div>
                 </div>
                 <div class="inline">
-                  <button class="ghost-btn" id="toggle-intake-edit">${detail.client.status === "intake_open" ? "Lock Intake" : "Enable Intake Edit"}</button>
-                  <button class="ghost-btn" id="reset-password">Reset Password</button>
-                  <button class="ghost-btn" id="export-client">Export to Sheets</button>
-                  <button class="ghost-btn danger" id="delete-client">Delete Client</button>
+                  <button class="ghost-btn" id="toggle-intake-edit">${detail.client.status === "intake_open" ? "🔒 Lock Intake" : "✏️ Enable Intake Edit"}</button>
+                  <button class="ghost-btn" id="reset-password">🔑 Reset Password</button>
+                  <button class="ghost-btn teal" id="export-client">↗ Export Sheets</button>
+                  <button class="ghost-btn danger" id="delete-client">Delete</button>
                 </div>
               </div>
               ${flash}
-              ${state.draftPassword ? `<div class="success" style="margin-bottom:12px">Temporary password: <strong>${escapeHtml(state.draftPassword)}</strong></div>` : ""}
+              ${state.draftPassword ? `<div class="temp-password-box" style="margin-bottom:16px"><div class="temp-password-label">⚡ New Temporary Password — save this now</div><div class="temp-password-value">${escapeHtml(state.draftPassword)}</div></div>` : ""}
               <div class="grid">
                 <div class="card">
-                  <div class="toolbar"><h3>Intake</h3><button class="ghost-btn" id="generate-plan">Regenerate Draft From Intake + Progress</button></div>
+                  <div class="toolbar">
+                    <h3>📋 Client Intake</h3>
+                    <button class="ghost-btn" id="generate-plan">⚡ Regenerate Plan from Intake</button>
+                  </div>
                   <div id="admin-intake-form">${renderIntakeForm(detail.intake?.answers_json || {}, "Save Intake", "return false;", detail.client.id)}</div>
                 </div>
                 <div class="card">
                   <div class="toolbar">
-                    <h3>Plan Draft</h3>
+                    <h3>✏️ Plan Editor</h3>
                     <div class="inline">
                       <button class="ghost-btn" id="save-plan">Save Edits</button>
-                      <button class="action-btn" id="publish-plan">${detail.plan?.status === "published" ? "Republish" : "Publish Plan"}</button>
+                      <button class="action-btn" id="publish-plan">${detail.plan?.status === "published" ? "↻ Republish" : "📤 Publish Plan"}</button>
                       ${detail.plan?.status === "published" ? '<button class="ghost-btn" id="unpublish-plan">Unpublish</button>' : ''}
                     </div>
                   </div>
                   ${renderPlanEditor(state.pendingPlanEdit || normalizeEditablePlan({}))}
                 </div>
                 <div class="card">
-                  <h3>Published Preview</h3>
-                  <div style="margin-top:12px">${renderPlan(detail.plan)}</div>
+                  <h3>👁 Published Plan Preview</h3>
+                  <div style="margin-top:14px">${renderPlan(detail.plan)}</div>
                 </div>
                 <div class="split">
                   <div class="card">
-                    <h3>Recent Daily Logs</h3>
-                    <div class="subtle">Coach notes, meal notes, and adherence from these entries are used during regeneration.</div>
-                    ${detail.dailyLogs.length ? `<div class="plan-list" style="margin-top:12px">${detail.dailyLogs.map(log => `<div><strong>${log.log_date}</strong><br/>Calories: ${log.macros_json.calories || 0}, Protein: ${log.macros_json.protein || 0}, Steps: ${log.steps || 0}${log.notes ? `<br/>Notes: ${escapeHtml(log.notes)}` : ""}${log.workout_json?.notes ? `<br/>Workout: ${escapeHtml(log.workout_json.notes)}` : ""}</div>`).join("")}</div>` : '<div class="empty" style="margin-top:12px">No logs yet.</div>'}
+                    <h3>📅 Recent Daily Logs</h3>
+                    <p class="subtle" style="margin-bottom:12px">Notes and adherence are used during plan regeneration.</p>
+                    ${detail.dailyLogs.length ? `<div class="plan-list">${detail.dailyLogs.map(log => `<div class="plan-list-item"><strong>${log.log_date}</strong> · Cal: ${log.macros_json?.calories || 0} · P: ${log.macros_json?.protein || 0}g · Steps: ${log.steps || 0}${log.notes ? `<br/><span style="color:var(--text-2)">📝 ${escapeHtml(log.notes)}</span>` : ""}${log.workout_json?.notes ? `<br/><span style="color:var(--text-2)">💪 ${escapeHtml(log.workout_json.notes)}</span>` : ""}</div>`).join("")}</div>` : '<div class="empty">No logs yet.</div>'}
                   </div>
                   <div class="card">
-                    <h3>Check-ins</h3>
-                    ${detail.checkins.length ? `<div class="plan-list" style="margin-top:12px">${detail.checkins.map(item => `<div><strong>${item.checkin_date}</strong><br/>Weight: ${item.weight || "-"} • Body fat: ${item.body_fat || "-"}${item.notes ? `<br/>Notes: ${escapeHtml(item.notes)}` : ""}</div>`).join("")}</div>` : '<div class="empty" style="margin-top:12px">No check-ins yet.</div>'}
-                    <div style="margin-top:12px">
-                      <h3 style="margin-bottom:8px">Latest Weekly Review</h3>
-                      ${detail.weeklyReview?.review_json ? `<div class="plan-list"><div><strong>${escapeHtml(detail.weeklyReview.week_key || "Latest week")}</strong><br/>Weight tracked: ${detail.weeklyReview.review_json.weight ? "Yes" : "No"}<br/>Workouts completed: ${detail.weeklyReview.review_json.workouts ? "Yes" : "No"}<br/>Protein hit: ${detail.weeklyReview.review_json.protein ? "Yes" : "No"}<br/>Sleep hit: ${detail.weeklyReview.review_json.sleep ? "Yes" : "No"}</div></div>` : '<div class="empty" style="margin-top:12px">No weekly review yet.</div>'}
-                    </div>
+                    <h3>📏 Check-ins</h3>
+                    ${detail.checkins.length ? `<div class="plan-list" style="margin-bottom:16px">${detail.checkins.map(item => `<div class="plan-list-item"><strong>${item.checkin_date}</strong> · Weight: ${item.weight || "—"} kg · BF: ${item.body_fat || "—"}%${item.notes ? `<br/><span style="color:var(--text-2)">${escapeHtml(item.notes)}</span>` : ""}</div>`).join("")}</div>` : '<div class="empty" style="margin-bottom:16px">No check-ins yet.</div>'}
+                    <h3>📊 Latest Weekly Review</h3>
+                    ${detail.weeklyReview?.review_json ? `<div class="plan-list"><div class="plan-list-item"><strong>${escapeHtml(detail.weeklyReview.week_key || "Latest")}</strong><br/>Weight: ${detail.weeklyReview.review_json.weight ? "✅" : "❌"} · Workouts: ${detail.weeklyReview.review_json.workouts ? "✅" : "❌"} · Protein: ${detail.weeklyReview.review_json.protein ? "✅" : "❌"} · Sleep: ${detail.weeklyReview.review_json.sleep ? "✅" : "❌"}</div></div>` : '<div class="empty">No weekly review yet.</div>'}
                   </div>
                 </div>
               </div>
             </div>
           `;
         }
+
       } else {
+        /* ─── CLIENT APP ─── */
         const today = new Date().toISOString().slice(0,10);
         const dailyLog = app.dailyLog || {};
         const review = app.weeklyReview?.review_json || {};
+
         if(path === "/app"){
+          const planLive = !!app.plan;
           content = `
-            <div class="client-shell">
+            <div class="grid">
               ${flash}
               <div class="client-stat-grid">
-                <div class="client-stat-card" style="border-color:${app.plan ? '#22c55e33' : '#1e2a3a'}">
-                  <div style="font-size:18px">${app.plan ? "✅" : "⏳"}</div>
-                  <div class="client-stat-value" style="color:${app.plan ? '#22c55e' : '#FF6B2B'}">${app.plan ? "Ready" : "Pending"}</div>
+                <div class="client-stat-card" style="border-color:${planLive ? 'rgba(95,222,122,.3)' : 'var(--border)'}">
+                  <div class="client-stat-icon">${planLive ? "✅" : "⏳"}</div>
+                  <div class="client-stat-value" style="color:${planLive ? 'var(--lime)' : 'var(--accent)'}">${planLive ? "Live" : "Pending"}</div>
                   <div class="client-stat-label">Plan</div>
                 </div>
-                <div class="client-stat-card" style="border-color:${app.canEditIntake ? '#F59E0B33' : '#1e2a3a'}">
-                  <div style="font-size:18px">${app.canEditIntake ? "📝" : "🔒"}</div>
-                  <div class="client-stat-value" style="color:${app.canEditIntake ? '#F59E0B' : '#3B9EFF'}">${app.canEditIntake ? "Open" : "Locked"}</div>
+                <div class="client-stat-card" style="border-color:${app.canEditIntake ? 'rgba(255,201,64,.3)' : 'var(--border)'}">
+                  <div class="client-stat-icon">${app.canEditIntake ? "📝" : "🔒"}</div>
+                  <div class="client-stat-value" style="color:${app.canEditIntake ? 'var(--gold)' : 'var(--teal)'}">${app.canEditIntake ? "Open" : "Locked"}</div>
                   <div class="client-stat-label">Intake</div>
                 </div>
-                <div class="client-stat-card" style="border-color:${dailyLog.log_date === today ? '#22c55e33' : '#1e2a3a'}">
-                  <div style="font-size:18px">${dailyLog.log_date === today ? "📈" : "⌛"}</div>
-                  <div class="client-stat-value" style="color:${dailyLog.log_date === today ? '#22c55e' : '#A855F7'}">${dailyLog.log_date === today ? "Saved" : "Pending"}</div>
-                  <div class="client-stat-label">Today's Log</div>
+                <div class="client-stat-card" style="border-color:${dailyLog.log_date === today ? 'rgba(95,222,122,.3)' : 'var(--border)'}">
+                  <div class="client-stat-icon">${dailyLog.log_date === today ? "📈" : "⌛"}</div>
+                  <div class="client-stat-value" style="color:${dailyLog.log_date === today ? 'var(--lime)' : 'var(--purple)'}">${dailyLog.log_date === today ? "Done" : "Pending"}</div>
+                  <div class="client-stat-label">Today</div>
                 </div>
               </div>
-              <div class="client-panel" style="background:linear-gradient(135deg,${app.plan ? 'rgba(34,197,94,.14), rgba(59,158,255,.08)' : 'rgba(255,147,80,.16), rgba(168,85,247,.08)'})">
-                <div class="client-kicker">${app.plan ? "Coach Published Plan" : "Waiting For Coach Review"}</div>
-                <div style="font-size:26px;font-weight:800;color:#f0f4ff;margin-top:4px">${escapeHtml(app.client?.full_name || "Client")}</div>
-                <div class="subtle" style="margin-top:4px">${app.plan ? "Your current plan is live. Follow it and update your log every day." : "Complete your intake and keep your log updated so your coach can review faster."}</div>
-                <div class="inline" style="margin-top:12px">
-                  <button class="action-btn" data-nav="/app/plan">Open Plan</button>
-                  <button class="ghost-btn" data-nav="/app/diet">Open Diet</button>
-                  <button class="ghost-btn" data-nav="/app/workout">Open Workout</button>
-                </div>
-              </div>
-              <div class="client-panel">
-                <div class="client-kicker" style="color:#6b7a99">Today</div>
-                <div class="client-list" style="margin-top:10px">
-                  <div class="client-list-item">
-                    <strong style="color:#f0f4ff">Next step</strong>
-                    <div class="subtle" style="margin-top:4px">${app.plan ? "Choose your meals and log your workout for today." : (app.canEditIntake ? "Submit your intake so the coach can build your plan." : "Wait for your coach to publish the plan, then start logging.")}</div>
-                  </div>
-                  <div class="client-list-item">
-                    <strong style="color:#f0f4ff">Coach note</strong>
-                    <div class="subtle" style="margin-top:4px">${app.plan ? "Coach published your plan. Use the Plan tab for guidance and the Diet and Workout tabs for progress tracking." : "Your coach will review your intake and progress before publishing your plan."}</div>
-                  </div>
+              <div class="client-panel client-hero">
+                <div class="client-panel-eyebrow">${planLive ? "Coach Published Plan" : "Waiting For Coach Review"}</div>
+                <div class="client-hero-name">${escapeHtml(app.client?.full_name || "Client")}</div>
+                <div class="client-hero-sub">${planLive ? "Your current plan is live. Follow it and update your log every day." : "Complete your intake and keep your log updated so your coach can review faster."}</div>
+                <div class="client-hero-actions">
+                  <button class="client-hero-btn primary" data-nav="/app/plan">Open Plan</button>
+                  <button class="client-hero-btn secondary" data-nav="/app/diet">Diet Log</button>
+                  <button class="client-hero-btn secondary" data-nav="/app/workout">Workout</button>
                 </div>
               </div>
               <div class="client-panel">
-                <div class="client-kicker" style="color:#6b7a99">Weekly Progress</div>
-                <h3 style="margin-top:8px">Progression Graph</h3>
-                <div class="subtle" style="margin-top:4px">Based on your weekly check-ins. Add weight every week to keep this updated.</div>
-                <div style="margin-top:14px">${renderProgressChart(app.checkins)}</div>
+                <div class="client-panel-eyebrow">What's Next</div>
+                <div class="client-list" style="margin-top:8px">
+                  <div class="client-list-item">
+                    <div class="client-list-item-head">Next step</div>
+                    <div class="client-list-item-sub">${planLive ? "Choose your meals and log your workout for today." : (app.canEditIntake ? "Submit your intake so the coach can build your plan." : "Wait for your coach to publish the plan, then start logging.")}</div>
+                  </div>
+                  <div class="client-list-item">
+                    <div class="client-list-item-head">Coach note</div>
+                    <div class="client-list-item-sub">${planLive ? "Use the Plan tab for guidance and the Diet and Workout tabs for progress tracking." : "Your coach will review your intake and progress before publishing your plan."}</div>
+                  </div>
+                </div>
+              </div>
+              <div class="client-panel">
+                <div class="client-panel-eyebrow">Progress</div>
+                <h3 style="margin-top:4px;margin-bottom:4px">Weight Progression</h3>
+                <div class="subtle" style="margin-bottom:14px">Based on weekly check-ins.</div>
+                ${renderProgressChart(app.checkins)}
               </div>
             </div>
           `;
+
         } else if(path === "/app/plan"){
-          content = `<div class="client-shell">${flash}<div class="client-panel"><div class="client-kicker">Coach Published Plan</div><h2 style="margin-top:8px">Your Plan</h2><p class="subtle">${app.client?.full_name || ""}</p><div style="margin-top:18px">${renderPlan(app.plan, { showMeta: false, coachPublished: true })}</div></div></div>`;
+          content = `
+            <div class="grid">
+              ${flash}
+              <div class="client-panel">
+                <div class="client-panel-eyebrow">Your Fitness Plan</div>
+                <h3 style="margin-top:4px">${escapeHtml(app.client?.full_name || "")}</h3>
+                <div style="margin-top:16px">${renderPlan(app.plan, { showMeta: false, coachPublished: true })}</div>
+              </div>
+            </div>
+          `;
+
         } else if(path === "/app/intake"){
           content = app.canEditIntake
-            ? `<div class="client-shell">${flash}<div class="client-panel"><div class="client-kicker">Intake</div><h2 style="margin-top:8px">Tell Your Coach About You</h2><p class="subtle">Submit this once. After that, your coach controls when it can be edited.</p><div style="margin-top:18px">${renderIntakeForm(app.intake?.answers_json || {}, "Submit Intake", "return false;")}</div></div></div>`
-            : `<div class="client-shell">${flash}<div class="client-panel"><div class="notice success">Your intake has been submitted. If you need to change it, ask your coach to enable editing.</div><div style="margin-top:18px">${renderIntakeForm(app.intake?.answers_json || {}, "Submitted", "return false;")}</div></div></div>`;
+            ? `<div class="grid">${flash}<div class="client-panel"><div class="client-panel-eyebrow">Intake Form</div><h3 style="margin-top:4px;margin-bottom:4px">Tell Your Coach About You</h3><p class="subtle">Submit this once. After that, your coach controls when it can be edited.</p><div style="margin-top:16px">${renderIntakeForm(app.intake?.answers_json || {}, "Submit Intake", "return false;")}</div></div></div>`
+            : `<div class="grid">${flash}<div class="client-panel"><div class="notice success">✅ Your intake has been submitted. If you need to change it, ask your coach to enable editing.</div><div style="margin-top:16px">${renderIntakeForm(app.intake?.answers_json || {}, "Submitted", "return false;")}</div></div></div>`;
+
         } else if(path === "/app/diet"){
           const breakfastSection = getPlanMealSection(app.plan, "Breakfast");
           const lunchSection = getPlanMealSection(app.plan, "Lunch");
           const dinnerSection = getPlanMealSection(app.plan, "Dinner");
           content = `
-            <div class="client-shell">
+            <div class="grid">
               ${flash}
-              <div class="client-panel">
-                <div class="client-kicker">Diet Log</div>
-                <h2 style="margin-top:8px">Track Meals</h2>
-                <p class="subtle">Choose meal options and let calories and macros fill automatically.</p>
-              </div>
               <form class="grid" id="diet-log-form">
                 <div class="client-panel">
-                  <h3>Meals & Macros</h3>
-                  <div class="subtle" id="autosave-status" style="margin-top:6px">${state.autoSaveStatus || "Changes auto-save while you type."}</div>
-                  <div class="subtle" style="margin-top:6px">Breakfast, lunch, and dinner totals are auto-calculated from the meal option you select.</div>
-                  <div class="grid" style="margin-top:12px">
+                  <div class="client-panel-eyebrow">Diet Log</div>
+                  <h3 style="margin-top:4px">Today's Meals</h3>
+                  <div class="exercise-history-meta" id="autosave-status" style="margin-top:5px">${state.autoSaveStatus || "Changes auto-save while you type."}</div>
+                  <div class="subtle" style="margin-top:4px;margin-bottom:14px">Macros auto-calculate from your meal selections.</div>
+                  <div class="grid">
                     <label><span>Date</span><input name="logDate" value="${dailyLog.log_date || today}" required/></label>
-                    <label><span>Breakfast</span>${renderMealSelect("breakfast", breakfastSection, dailyLog.meals_json?.breakfast || "")}</label>
-                    <label><span>Lunch</span>${renderMealSelect("lunch", lunchSection, dailyLog.meals_json?.lunch || "")}</label>
-                    <label><span>Dinner</span>${renderMealSelect("dinner", dinnerSection, dailyLog.meals_json?.dinner || "")}</label>
-                    <label><span>Snacks</span><input name="snacks" value="${escapeHtml(dailyLog.meals_json?.snacks || "")}"/></label>
-                    <div class="grid cols-2">
-                      <label><span>Calories</span><input name="calories" value="${dailyLog.macros_json?.calories || 0}" readonly/></label>
-                      <label><span>Protein</span><input name="protein" value="${dailyLog.macros_json?.protein || 0}" readonly/></label>
-                      <label><span>Carbs</span><input name="carbs" value="${dailyLog.macros_json?.carbs || 0}" readonly/></label>
-                      <label><span>Fat</span><input name="fat" value="${dailyLog.macros_json?.fat || 0}" readonly/></label>
-                    </div>
-                    <div class="grid cols-2">
-                      <label><span>Hydration (L)</span><input name="hydration" value="${dailyLog.hydration || 0}"/></label>
-                      <label><span>Steps</span><input name="steps" value="${dailyLog.steps || 0}"/></label>
-                    </div>
+                    <label><span>🌅 Breakfast</span>${renderMealSelect("breakfast", breakfastSection, dailyLog.meals_json?.breakfast || "")}</label>
+                    <label><span>☀️ Lunch</span>${renderMealSelect("lunch", lunchSection, dailyLog.meals_json?.lunch || "")}</label>
+                    <label><span>🌙 Dinner</span>${renderMealSelect("dinner", dinnerSection, dailyLog.meals_json?.dinner || "")}</label>
+                    <label><span>🍎 Snacks</span><input name="snacks" value="${escapeHtml(dailyLog.meals_json?.snacks || "")}" placeholder="Optional snacks..."/></label>
                   </div>
                 </div>
                 <div class="client-panel">
-                  <h3>Diet Notes</h3>
-                  <div class="grid">
-                    <label><span>General notes</span><textarea name="notes">${escapeHtml(dailyLog.notes || "")}</textarea></label>
-                    <button class="action-btn" type="submit">Save Diet Log</button>
+                  <div class="client-panel-eyebrow">Macros (Auto-Calculated)</div>
+                  <div class="client-stat-grid" style="margin-top:10px">
+                    <div class="client-stat-card"><div class="client-stat-value"><input name="calories" value="${dailyLog.macros_json?.calories || 0}" readonly style="background:transparent;border:none;padding:0;text-align:center;font-family:'Outfit',sans-serif;font-size:18px;font-weight:800;color:var(--accent)"/></div><div class="client-stat-label">Calories</div></div>
+                    <div class="client-stat-card"><div class="client-stat-value"><input name="protein" value="${dailyLog.macros_json?.protein || 0}" readonly style="background:transparent;border:none;padding:0;text-align:center;font-family:'Outfit',sans-serif;font-size:18px;font-weight:800;color:var(--teal)"/></div><div class="client-stat-label">Protein g</div></div>
+                    <div class="client-stat-card"><div class="client-stat-value"><input name="carbs" value="${dailyLog.macros_json?.carbs || 0}" readonly style="background:transparent;border:none;padding:0;text-align:center;font-family:'Outfit',sans-serif;font-size:18px;font-weight:800;color:var(--gold)"/></div><div class="client-stat-label">Carbs g</div></div>
+                  </div>
+                  <div style="margin-top:10px"><input name="fat" value="${dailyLog.macros_json?.fat || 0}" readonly style="display:none"/></div>
+                </div>
+                <div class="client-panel">
+                  <div class="client-panel-eyebrow">Activity</div>
+                  <div class="grid cols-2" style="margin-top:10px">
+                    <label><span>💧 Hydration (L)</span><input name="hydration" value="${dailyLog.hydration || 0}" type="number" step="0.1"/></label>
+                    <label><span>👟 Steps</span><input name="steps" value="${dailyLog.steps || 0}" type="number"/></label>
+                  </div>
+                  <div class="grid" style="margin-top:12px">
+                    <label><span>📝 Notes</span><textarea name="notes" placeholder="How did today go?">${escapeHtml(dailyLog.notes || "")}</textarea></label>
+                    <button class="action-btn" type="submit" style="width:100%;justify-content:center">Save Diet Log</button>
                   </div>
                 </div>
               </form>
             </div>
           `;
+
         } else if(path === "/app/workout"){
           const selectedWorkout = dailyLog.workout_json?.session || "";
           content = `
-            <div class="client-shell">
+            <div class="grid">
               ${flash}
-              <div class="client-panel">
-                <div class="client-kicker">Workout Log</div>
-                <h2 style="margin-top:8px">Track Training</h2>
-                <p class="subtle">Pick today’s session, tap completed sets, and enter weights.</p>
-              </div>
               <form class="grid" id="workout-log-form">
                 <div class="client-panel">
+                  <div class="client-panel-eyebrow">Workout Log</div>
+                  <h3 style="margin-top:4px">Track Training</h3>
+                  <p class="subtle" style="margin-top:4px;margin-bottom:14px">Pick today's session, tap completed sets, enter weights.</p>
                   <div class="grid">
                     <label><span>Date</span><input name="logDate" value="${dailyLog.log_date || today}" required/></label>
-                    <label><span>Workout Session</span>${renderWorkoutSelect(app.plan, selectedWorkout)}</label>
-                    <div id="workout-cards">${renderWorkoutExerciseCards(app.plan, selectedWorkout, dailyLog.workout_json?.entries || {})}</div>
-                    <label><span>Cardio</span><input name="cardio" value="${escapeHtml(dailyLog.cardio || "")}"/></label>
-                    <label><span>Workout Notes</span><textarea name="workoutNotes">${escapeHtml(dailyLog.workout_json?.notes || "")}</textarea></label>
-                    <label><input type="checkbox" name="workoutCompleted" ${dailyLog.workout_json?.completed ? "checked" : ""}/> Workout completed</label>
+                    <label><span>Today's Session</span>${renderWorkoutSelect(app.plan, selectedWorkout)}</label>
                   </div>
+                </div>
+                <div class="grid" id="workout-cards">${renderWorkoutExerciseCards(app.plan, selectedWorkout, dailyLog.workout_json?.entries || {})}</div>
+                <div class="client-panel">
+                  <label><span>🏃 Cardio</span><input name="cardio" value="${escapeHtml(dailyLog.cardio || "")}" placeholder="e.g. 20 min walk"/></label>
+                  <label style="margin-top:12px"><span>📝 Workout Notes</span><textarea name="workoutNotes" placeholder="How did the session feel?">${escapeHtml(dailyLog.workout_json?.notes || "")}</textarea></label>
+                  <label style="margin-top:10px;display:flex;align-items:center;gap:8px"><input type="checkbox" name="workoutCompleted" ${dailyLog.workout_json?.completed ? "checked" : ""}/> <span style="display:inline;font-size:13.5px;color:var(--text);text-transform:none;letter-spacing:0">Workout completed</span></label>
                 </div>
                 <div class="workout-submit-bar">
                   <div class="workout-status" id="workout-draft-status">${workoutDraftStatus || "Tap sets and enter weight, then press Submit Workout."}</div>
-                  <button class="action-btn" type="submit">Submit Workout</button>
+                  <button class="action-btn" type="submit" style="width:100%;justify-content:center">Submit Workout →</button>
                 </div>
               </form>
               <div class="grid cols-2">
+                <div class="client-panel">
+                  <div class="client-panel-eyebrow">Weekly Check-in</div>
+                  <h3 style="margin-top:4px">Body Stats</h3>
+                  <form class="grid" id="checkin-form" style="margin-top:12px">
+                    <label><span>Date</span><input name="checkinDate" value="${today}" required/></label>
+                    <div class="grid cols-2">
+                      <label><span>⚖️ Weight (kg)</span><input name="weight"/></label>
+                      <label><span>📊 Body fat %</span><input name="bodyFat"/></label>
+                      <label><span>📏 Waist (cm)</span><input name="waist"/></label>
+                      <label><span>📏 Hips (cm)</span><input name="hips"/></label>
+                    </div>
+                    <label><span>📝 Notes</span><textarea name="checkinNotes" style="min-height:70px"></textarea></label>
+                    <button class="action-btn" type="submit" style="width:100%;justify-content:center">Save Check-in</button>
+                  </form>
+                </div>
+                <div class="grid" style="gap:10px">
                   <div class="client-panel">
-                    <h3>Check-in</h3>
-                    <form class="grid" id="checkin-form" style="margin-top:12px">
-                      <label><span>Date</span><input name="checkinDate" value="${today}" required/></label>
-                      <div class="grid cols-2">
-                        <label><span>Weight</span><input name="weight"/></label>
-                        <label><span>Body fat %</span><input name="bodyFat"/></label>
-                        <label><span>Waist</span><input name="waist"/></label>
-                        <label><span>Hips</span><input name="hips"/></label>
-                      </div>
-                      <label><span>Notes</span><textarea name="checkinNotes"></textarea></label>
-                      <button class="action-btn" type="submit">Save Check-in</button>
+                    <div class="client-panel-eyebrow">Weekly Review</div>
+                    <form class="grid" id="review-form" style="margin-top:8px">
+                      <input name="weekKey" value="${app.weeklyReview?.week_key || currentWeekKey()}" style="display:none"/>
+                      <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" name="reviewWeight" ${review.weight ? "checked" : ""}/><span style="display:inline;font-size:13px;color:var(--text);text-transform:none;letter-spacing:0">⚖️ Weight tracked</span></label>
+                      <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" name="reviewWorkouts" ${review.workouts ? "checked" : ""}/><span style="display:inline;font-size:13px;color:var(--text);text-transform:none;letter-spacing:0">💪 Workouts done</span></label>
+                      <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" name="reviewProtein" ${review.protein ? "checked" : ""}/><span style="display:inline;font-size:13px;color:var(--text);text-transform:none;letter-spacing:0">🥩 Protein hit</span></label>
+                      <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" name="reviewSleep" ${review.sleep ? "checked" : ""}/><span style="display:inline;font-size:13px;color:var(--text);text-transform:none;letter-spacing:0">😴 Sleep target</span></label>
+                      <button class="action-btn" type="submit" style="width:100%;justify-content:center">Save Review</button>
                     </form>
                   </div>
                   <div class="client-panel">
-                    <h3>Weekly Review</h3>
-                    <form class="grid" id="review-form" style="margin-top:12px">
-                      <label><span>Week key</span><input name="weekKey" value="${app.weeklyReview?.week_key || currentWeekKey()}"/></label>
-                      <label><input type="checkbox" name="reviewWeight" ${review.weight ? "checked" : ""}/> Weight tracked</label>
-                      <label><input type="checkbox" name="reviewWorkouts" ${review.workouts ? "checked" : ""}/> Workouts completed</label>
-                      <label><input type="checkbox" name="reviewProtein" ${review.protein ? "checked" : ""}/> Protein target hit</label>
-                      <label><input type="checkbox" name="reviewSleep" ${review.sleep ? "checked" : ""}/> Sleep target hit</label>
-                      <button class="action-btn" type="submit">Save Weekly Review</button>
-                    </form>
-                  </div>
-                  <div class="client-panel">
-                    <h3>Account</h3>
-                    <form class="grid" id="password-form" style="margin-top:12px">
+                    <div class="client-panel-eyebrow">Account</div>
+                    <form class="grid" id="password-form" style="margin-top:8px">
                       <label><span>Current password</span><input type="password" name="currentPassword" required/></label>
                       <label><span>New password</span><input type="password" name="newPassword" required/></label>
-                      <button class="ghost-btn" type="submit">Change Password</button>
+                      <button class="ghost-btn" type="submit" style="width:100%;justify-content:center">Change Password</button>
                     </form>
                   </div>
                 </div>
@@ -1679,23 +2346,24 @@
         }
       }
 
+      /* ─── SHELL WRAPPER ─── */
       root.innerHTML = isAdmin ? `
         <div class="app-shell">
           <div class="topbar">
             <div class="brand">
-              <div class="badge">Admin Workspace</div>
-              <h1>Fitness Admin Console</h1>
-              <p>${state.me?.username || ""}${state.me?.mustChangePassword ? " • password change required" : ""}</p>
+              <div class="brand-eyebrow">Admin Console</div>
+              <h1>Fitness Platform</h1>
+              <div class="brand-sub">Signed in as <strong>${state.me?.username || ""}</strong></div>
             </div>
             <div class="top-actions">
-              <button class="ghost-btn" id="logout-btn">Logout</button>
+              <button class="ghost-btn" id="logout-btn">Sign Out</button>
             </div>
           </div>
           <div class="layout">
             <aside class="sidebar">
-              <h3>Navigation</h3>
+              <div class="sidebar-label">Navigation</div>
               <nav>
-                ${nav.map(([href, label]) => `<button class="nav-btn ${path === href ? "active" : ""}" data-nav="${href}">${label}</button>`).join("")}
+                ${nav.map(([href, label]) => `<button class="nav-btn ${path === href ? "active" : ""}" data-nav="${href}"><span class="nav-icon">${href === "/admin" ? "⬡" : "◈"}</span>${label}</button>`).join("")}
               </nav>
             </aside>
             <main>${content}</main>
@@ -1705,24 +2373,31 @@
         <div class="client-app">
           <div class="client-header">
             <div class="client-header-row">
-              <div>
-                <div class="client-kicker">${state.me?.username || "client"}</div>
-                <div class="client-title">FitnessLog</div>
+              <div class="client-brand">
+                <div class="client-brand-icon">🔥</div>
+                <div class="client-brand-text">
+                  <div class="client-kicker">${state.me?.username || "client"}</div>
+                  <div class="client-title">FitnessLog</div>
+                </div>
               </div>
-              <div style="text-align:right">
-                <div class="client-subtitle">${new Date().toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"short"})}</div>
-                <div class="client-chip"><span style="width:6px;height:6px;border-radius:50%;background:${app?.plan ? '#22c55e' : '#FF6B2B'};display:inline-block"></span>${app?.plan ? 'Plan Live' : 'Plan Pending'}</div>
-                <div style="margin-top:6px"><button class="ghost-btn" id="logout-btn" style="padding:6px 10px;font-size:11px">Logout</button></div>
+              <div class="client-header-right">
+                <div class="client-date">${new Date().toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"short"})}</div>
+                <div class="client-chip">
+                  <span class="chip-dot" style="background:${app?.plan ? 'var(--lime)' : 'var(--accent)'}"></span>
+                  ${app?.plan ? "Plan Live" : "Plan Pending"}
+                </div>
+                <div><button class="client-logout" id="logout-btn">Sign Out</button></div>
               </div>
             </div>
           </div>
           <div class="client-main">${content}</div>
           <div class="bottom-tabs">
-            ${nav.map(([href, label]) => `<button class="bottom-tab ${path === href ? "active" : ""}" data-nav="${href}"><span class="bottom-tab-icon">${clientTabIcon(href)}</span><span class="bottom-tab-label">${label}</span></button>`).join("")}
+            ${nav.map(([href, label]) => `<button class="bottom-tab ${path === href ? "active" : ""}" data-nav="${href}"><span class="bottom-tab-icon">${clientTabIcon(href)}</span><span class="bottom-tab-label">${clientTabLabel(href)}</span></button>`).join("")}
           </div>
         </div>
       `;
 
+      /* ─── BIND EVENTS ─── */
       document.querySelectorAll("[data-nav]").forEach(btn => btn.onclick = () => setRoute(btn.dataset.nav));
       const logoutBtn = document.getElementById("logout-btn");
       if(logoutBtn) logoutBtn.onclick = logout;
@@ -1740,9 +2415,7 @@
         document.getElementById("toggle-intake-edit").onclick = () => toggleIntakeEdit(clientId, state.adminClientDetail.client.status !== "intake_open");
         document.getElementById("reset-password").onclick = () => resetPassword(clientId);
         document.getElementById("generate-plan").onclick = () => generatePlan(clientId);
-        document.getElementById("save-plan").onclick = () => {
-          savePlanEdits(clientId);
-        };
+        document.getElementById("save-plan").onclick = () => { savePlanEdits(clientId); };
         document.getElementById("publish-plan").onclick = () => publishPlan(clientId, true);
         const unpublish = document.getElementById("unpublish-plan");
         if(unpublish) unpublish.onclick = () => publishPlan(clientId, false);
@@ -1773,6 +2446,10 @@
         document.getElementById("password-form").onsubmit = changePassword;
         attachWorkoutLogEnhancements();
       }
+    }
+
+    function safeJson(value, fallback){
+      try{ return typeof value === "string" ? JSON.parse(value) : value; }catch{ return fallback; }
     }
 
     bootstrap();
