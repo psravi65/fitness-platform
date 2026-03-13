@@ -965,6 +965,9 @@
     async function saveIntake(ev, clientId){
       ev.preventDefault();
       const form = new FormData(ev.target);
+      const btn = ev.target.querySelector('button[type="submit"]');
+      const originalLabel = btn ? btn.textContent : "";
+      if(btn){ btn.disabled = true; btn.textContent = "Saving…"; }
       const payload = {};
       for (const section of intakeSections){
         payload[section.key] = {};
@@ -982,21 +985,39 @@
         setFlash("Intake saved.");
         await bootstrapForRoute();
       }catch(err){
+        if(btn){ btn.disabled = false; btn.textContent = originalLabel; }
         setFlash(err.message, true);
       }
     }
 
+    function withBtnLoading(btnId, loadingText, fn){
+      return async function(...args){
+        const btn = document.getElementById(btnId);
+        const orig = btn ? btn.textContent : "";
+        if(btn){ btn.disabled = true; btn.textContent = loadingText; }
+        try{ await fn(...args); }
+        finally{ if(btn){ btn.disabled = false; btn.textContent = orig; } }
+      };
+    }
+
     async function generatePlan(clientId){
+      const btn = document.getElementById("generate-plan");
+      const orig = btn ? btn.textContent : "";
+      if(btn){ btn.disabled = true; btn.textContent = "Generating…"; }
       try{
         await api("/api/admin/clients/" + clientId + "/generate-plan", { method: "POST", body: "{}" });
         setFlash("Plan draft generated.");
         await bootstrapForRoute();
       }catch(err){
+        if(btn){ btn.disabled = false; btn.textContent = orig; }
         setFlash(err.message, true);
       }
     }
 
     async function savePlanEdits(clientId){
+      const btn = document.getElementById("save-plan");
+      const orig = btn ? btn.textContent : "";
+      if(btn){ btn.disabled = true; btn.textContent = "Saving…"; }
       try{
         const edited = collectPlanEditForm();
         await api("/api/admin/clients/" + clientId + "/plan", {
@@ -1006,11 +1027,15 @@
         setFlash("Plan edits saved.");
         await bootstrapForRoute();
       }catch(err){
+        if(btn){ btn.disabled = false; btn.textContent = orig; }
         setFlash(err.message || "Plan edits could not be saved.", true);
       }
     }
 
     async function publishPlan(clientId, publish){
+      const btn = document.getElementById(publish ? "publish-plan" : "unpublish-plan");
+      const orig = btn ? btn.textContent : "";
+      if(btn){ btn.disabled = true; btn.textContent = publish ? "Publishing…" : "Unpublishing…"; }
       try{
         await api("/api/admin/clients/" + clientId + "/publish-plan", {
           method: "POST",
@@ -1019,6 +1044,7 @@
         setFlash(publish ? "Plan published." : "Plan unpublished.");
         await bootstrapForRoute();
       }catch(err){
+        if(btn){ btn.disabled = false; btn.textContent = orig; }
         setFlash(err.message, true);
       }
     }
@@ -2477,7 +2503,7 @@
 
       if(isAdmin && state.adminClientDetail){
         const clientId = state.adminClientDetail.client.id;
-        const intakeForm = document.querySelector("#admin-intake-form form");
+        const intakeForm = document.querySelector("#admin-intake-form form[data-intake-clientid]");
         if(intakeForm){
           intakeForm.onsubmit = (ev) => saveIntake(ev, clientId);
           attachIntakeDraftSave(intakeForm, clientId);
@@ -2499,7 +2525,7 @@
       }
 
       if(!isAdmin && path === "/app/intake"){
-        const intakeForm = document.querySelector("main form");
+        const intakeForm = document.querySelector(".client-main form[data-intake-clientid]");
         if(intakeForm && state.appData?.canEditIntake){
           intakeForm.onsubmit = saveIntake;
           attachIntakeDraftSave(intakeForm, null);
