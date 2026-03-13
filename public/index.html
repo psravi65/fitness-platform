@@ -1657,29 +1657,29 @@
     }
 
     function renderIntakeForm(values = {}, submitLabel, onSubmit, clientId){
-      return \`
+      return `
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;min-height:18px">
           <span id="intake-draft-indicator" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-3)">Typing auto-saves a local draft — safe if connection drops.</span>
         </div>
-        <form class="grid" onsubmit="\${onSubmit}" data-intake-clientid="\${escapeAttr(clientId || '')}">
-          \${intakeSections.map(section => \`
+        <form class="grid" onsubmit="${onSubmit}" data-intake-clientid="${escapeAttr(clientId || '')}">
+          ${intakeSections.map(section => `
             <div class="card">
-              <h3>\${section.title}</h3>
+              <h3>${section.title}</h3>
               <div class="grid cols-2" style="margin-top:14px">
-                \${section.fields.map(([field, label, meta]) => \`
-                  <label style="\${(section.fields.length === 1 || meta?.type === 'textarea') ? 'grid-column:1/-1' : ''}">
-                    <span>\${label}</span>
-                    \${renderIntakeField(section.key, field, label, meta, values?.[section.key]?.[field] || '')}
+                ${section.fields.map(([field, label, meta]) => `
+                  <label style="${(section.fields.length === 1 || meta?.type === 'textarea') ? 'grid-column:1/-1' : ''}">
+                    <span>${label}</span>
+                    ${renderIntakeField(section.key, field, label, meta, values?.[section.key]?.[field] || '')}
                   </label>
-                \`).join("")}
+                `).join("")}
               </div>
             </div>
-          \`).join("")}
+          `).join("")}
           <div class="inline">
-            <button class="action-btn" type="submit">\${submitLabel}</button>
+            <button class="action-btn" type="submit">${submitLabel}</button>
           </div>
         </form>
-      \`;
+      `;
     }
 
     function escapeHtml(value){
@@ -2336,37 +2336,37 @@
           const checkedInThisWeek = (app.checkins || []).some(c => (c.checkin_date || "") >= thisWeekStart);
 
           function missionItem(done, text, sub){
-            return \`<div style="display:flex;align-items:flex-start;gap:12px;padding:11px 0;border-bottom:1px solid var(--border)">
-              <div style="width:22px;height:22px;border-radius:50%;border:2px solid \${done ? 'var(--lime)' : 'var(--border-bright)'};background:\${done ? 'rgba(95,222,122,.15)' : 'transparent'};display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;font-size:11px">\${done ? '✓' : ''}</div>
+            return `<div style="display:flex;align-items:flex-start;gap:12px;padding:11px 0;border-bottom:1px solid var(--border)">
+              <div style="width:22px;height:22px;border-radius:50%;border:2px solid ${done ? 'var(--lime)' : 'var(--border-bright)'};background:${done ? 'rgba(95,222,122,.15)' : 'transparent'};display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;font-size:11px">${done ? '✓' : ''}</div>
               <div>
-                <div style="font-size:13.5px;font-weight:700;color:\${done ? 'var(--text-2)' : 'var(--text)'};text-decoration:\${done ? 'line-through' : 'none'}">\${text}</div>
-                \${sub ? \`<div style="font-size:11px;color:var(--text-3);margin-top:2px">\${sub}</div>\` : ''}
+                <div style="font-size:13.5px;font-weight:700;color:${done ? 'var(--text-2)' : 'var(--text)'};text-decoration:${done ? 'line-through' : 'none'}">${text}</div>
+                ${sub ? `<div style="font-size:11px;color:var(--text-3);margin-top:2px">${sub}</div>` : ''}
               </div>
-            </div>\`;
+            </div>`;
           }
 
           function macroBar(label, current, target, color){
             const pct = target > 0 ? Math.min(100, Math.round((current/target)*100)) : 0;
-            return \`<div style="margin-bottom:12px">
+            return `<div style="margin-bottom:12px">
               <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
-                <span style="font-size:12px;color:var(--text-2)">\${label}</span>
-                <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:\${color}">\${current}\${target > 0 ? \` / \${target}\` : ''}</span>
+                <span style="font-size:12px;color:var(--text-2)">${label}</span>
+                <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:${color}">${current}${target > 0 ? ` / ${target}` : ''}</span>
               </div>
               <div style="height:5px;background:var(--surface-3);border-radius:99px;overflow:hidden">
-                <div style="height:100%;width:\${pct}%;background:\${color};border-radius:99px;transition:width .4s ease"></div>
+                <div style="height:100%;width:${pct}%;background:${color};border-radius:99px;transition:width .4s ease"></div>
               </div>
-            </div>\`;
+            </div>`;
           }
 
           // ─── STATE 1: Brand new client — no intake yet ───────────────────
           if(!hasIntake && app.canEditIntake){
-            content = \`
+            content = `
               <div class="grid">
-                \${flash}
+                ${flash}
                 <div class="client-panel" style="background:linear-gradient(135deg,rgba(255,92,40,.18),rgba(255,147,64,.06));border-color:rgba(255,92,40,.3)">
                   <div style="font-size:32px;margin-bottom:10px">👋</div>
                   <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--accent);text-transform:uppercase;letter-spacing:.14em">Step 1 of 2</div>
-                  <div style="font-family:'Outfit',sans-serif;font-size:22px;font-weight:900;color:var(--text);margin-top:4px">Welcome, \${escapeHtml(app.client?.full_name?.split(" ")[0] || "there")}!</div>
+                  <div style="font-family:'Outfit',sans-serif;font-size:22px;font-weight:900;color:var(--text);margin-top:4px">Welcome, ${escapeHtml(app.client?.full_name?.split(" ")[0] || "there")}!</div>
                   <div style="font-size:13.5px;color:var(--text-2);margin-top:8px;line-height:1.7">Your coach needs to know about your body, goals, diet, and lifestyle before building your personalised plan. This takes about <strong style="color:var(--text)">5–10 minutes</strong> to fill in.</div>
                   <button class="action-btn" data-nav="/app/intake" style="margin-top:18px;width:100%;justify-content:center;font-size:15px;padding:14px">Fill Intake Form →</button>
                 </div>
@@ -2403,18 +2403,18 @@
                   </div>
                 </div>
               </div>
-            \`;
+            `;
 
           // ─── STATE 2: Intake submitted, waiting for plan ──────────────────
           } else if(!planLive){
-            content = \`
+            content = `
               <div class="grid">
-                \${flash}
+                ${flash}
                 <div class="client-panel" style="background:linear-gradient(135deg,rgba(0,203,168,.1),rgba(0,203,168,.03));border-color:rgba(0,203,168,.25)">
                   <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--teal);text-transform:uppercase;letter-spacing:.14em">Status</div>
                   <div style="font-family:'Outfit',sans-serif;font-size:20px;font-weight:900;color:var(--text);margin-top:4px">Intake submitted ✅</div>
                   <div style="font-size:13px;color:var(--text-2);margin-top:6px;line-height:1.6">Your coach is reviewing your details and building your personalised plan. You'll see it here once it's published.</div>
-                  \${app.canEditIntake ? \`<button class="ghost-btn" data-nav="/app/intake" style="margin-top:14px">Edit Intake →</button>\` : ''}
+                  ${app.canEditIntake ? `<button class="ghost-btn" data-nav="/app/intake" style="margin-top:14px">Edit Intake →</button>` : ''}
                 </div>
                 <div class="client-panel">
                   <div class="client-panel-eyebrow">While you wait</div>
@@ -2433,24 +2433,24 @@
                   <div class="client-panel-eyebrow">Progress</div>
                   <h3 style="margin-top:4px;margin-bottom:4px">Weight Progression</h3>
                   <div class="subtle" style="margin-bottom:14px">Based on weekly check-ins.</div>
-                  \${renderProgressChart(app.checkins)}
+                  ${renderProgressChart(app.checkins)}
                 </div>
               </div>
-            \`;
+            `;
 
           // ─── STATE 3: Plan is live — active daily use ─────────────────────
           } else {
-            content = \`
+            content = `
               <div class="grid">
-                \${flash}
+                ${flash}
                 <div class="client-panel client-hero">
                   <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
                     <div>
-                      <div class="client-panel-eyebrow">Good \${new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 17 ? 'afternoon' : 'evening'}</div>
-                      <div class="client-hero-name">\${escapeHtml(app.client?.full_name?.split(" ")[0] || "there")}</div>
+                      <div class="client-panel-eyebrow">Good ${new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 17 ? 'afternoon' : 'evening'}</div>
+                      <div class="client-hero-name">${escapeHtml(app.client?.full_name?.split(" ")[0] || "there")}</div>
                     </div>
                     <div style="text-align:right">
-                      <div style="font-family:'Outfit',sans-serif;font-size:28px;font-weight:900;line-height:1;color:\${streak > 0 ? 'var(--accent)' : 'var(--text-3)'}">\${streak > 0 ? streak + ' 🔥' : '—'}</div>
+                      <div style="font-family:'Outfit',sans-serif;font-size:28px;font-weight:900;line-height:1;color:${streak > 0 ? 'var(--accent)' : 'var(--text-3)'}">${streak > 0 ? streak + ' 🔥' : '—'}</div>
                       <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.1em;margin-top:3px">day streak</div>
                     </div>
                   </div>
@@ -2459,30 +2459,30 @@
                 <div class="client-panel">
                   <div class="client-panel-eyebrow">Today's Mission</div>
                   <div style="margin-top:2px">
-                    \${missionItem(mealLogged, "Log today's meals", mealLogged ? "Meals recorded" : "Go to Diet tab and select your meals")}
-                    \${missionItem(workoutLogged, "Complete today's workout", workoutLogged ? "Workout done" : "Go to Workout tab and log your session")}
-                    \${missionItem(waterLogged, "Drink 2L of water", waterLogged ? \`\${dailyLog.hydration}L logged\` : \`\${dailyLog.hydration || 0}L logged so far — update in Diet tab\`)}
-                    \${missionItem(checkedInThisWeek, "Weekly check-in", checkedInThisWeek ? "Done this week" : "Log your weight in Workout tab → Check-in")}
+                    ${missionItem(mealLogged, "Log today's meals", mealLogged ? "Meals recorded" : "Go to Diet tab and select your meals")}
+                    ${missionItem(workoutLogged, "Complete today's workout", workoutLogged ? "Workout done" : "Go to Workout tab and log your session")}
+                    ${missionItem(waterLogged, "Drink 2L of water", waterLogged ? `${dailyLog.hydration}L logged` : `${dailyLog.hydration || 0}L logged so far — update in Diet tab`)}
+                    ${missionItem(checkedInThisWeek, "Weekly check-in", checkedInThisWeek ? "Done this week" : "Log your weight in Workout tab → Check-in")}
                   </div>
                 </div>
 
                 <div class="client-panel">
                   <div class="client-panel-eyebrow">Today's Nutrition</div>
-                  \${calorieTarget > 0 ? \`
+                  ${calorieTarget > 0 ? `
                     <div style="margin-top:12px">
-                      \${macroBar("Calories", caloriesLogged, calorieTarget, "var(--accent)")}
-                      \${macroBar("Protein (g)", proteinLogged, proteinTarget, "var(--teal)")}
+                      ${macroBar("Calories", caloriesLogged, calorieTarget, "var(--accent)")}
+                      ${macroBar("Protein (g)", proteinLogged, proteinTarget, "var(--teal)")}
                     </div>
-                    \${!loggedToday ? \`<div style="font-size:12px;color:var(--text-3);margin-top:4px;font-style:italic">Log today's meals in the Diet tab to update these.</div>\` : ''}
-                  \` : \`<div class="empty" style="margin-top:10px">Macro targets will appear once your plan is published.</div>\`}
+                    ${!loggedToday ? `<div style="font-size:12px;color:var(--text-3);margin-top:4px;font-style:italic">Log today's meals in the Diet tab to update these.</div>` : ''}
+                  ` : `<div class="empty" style="margin-top:10px">Macro targets will appear once your plan is published.</div>`}
                 </div>
 
                 <div class="client-panel">
                   <div class="client-panel-eyebrow">Weight Progression</div>
-                  <div style="margin-top:10px">\${renderProgressChart(app.checkins)}</div>
+                  <div style="margin-top:10px">${renderProgressChart(app.checkins)}</div>
                 </div>
               </div>
-            \`;
+            `;
           }
 
         } else if(path === "/app/plan"){
