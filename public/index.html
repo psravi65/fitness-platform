@@ -103,8 +103,10 @@
     .client-stat-label{font-size:8px;color:#6b7a99;text-transform:uppercase;letter-spacing:.08em;margin-top:2px}
     .client-list{display:grid;gap:8px}
     .client-list-item{background:#0d1117;border:1px solid #1e2a3a;border-radius:12px;padding:10px 12px}
-    .set-toggle{min-width:48px;text-align:center;touch-action:manipulation;-webkit-tap-highlight-color:transparent;user-select:none}
-    .set-toggle.active{background:rgba(255,147,80,.18);border-color:rgba(255,147,80,.45);color:#ffb06c}
+    .set-toggle-wrap{position:relative;display:inline-flex}
+    .set-check{position:absolute;opacity:0;pointer-events:none}
+    .set-toggle-label{min-width:48px;text-align:center;touch-action:manipulation;-webkit-tap-highlight-color:transparent;user-select:none;display:inline-flex;align-items:center;justify-content:center}
+    .set-toggle-wrap.active .set-toggle-label{background:rgba(255,147,80,.18);border-color:rgba(255,147,80,.45);color:#ffb06c}
     .workout-submit-bar{position:sticky;bottom:74px;background:rgba(8,12,18,.94);backdrop-filter:blur(10px);border:1px solid #1e2a3a;border-radius:16px;padding:10px 12px;display:grid;gap:10px}
     .workout-status{font-size:11px;color:#8ea2c7;font-family:ui-monospace,monospace}
     .progress-chart{display:grid;gap:12px}
@@ -591,7 +593,7 @@
       const exerciseEntries = { ...currentEntries };
       getWorkoutExercises(state.appData?.plan, workoutSession).forEach((exercise) => {
         exerciseEntries[exercise.id] = {
-          sets: safeJson(form.get(`sets_${exercise.id}`), Array(exercise.sets).fill(false)) || Array(exercise.sets).fill(false),
+          sets: readExerciseSetState(formEl, exercise),
           weight: form.get(`weight_${exercise.id}`) || ""
         };
       });
@@ -724,20 +726,26 @@
     function bindWorkoutSetButtons(form){
       const container = document.getElementById("workout-cards");
       if(!container) return;
-      container.onclick = (ev) => {
-        const button = ev.target.closest(".set-toggle");
-        if(!button || !container.contains(button)) return;
-        ev.preventDefault();
-        const exerciseId = button.dataset.exerciseId;
-        const setIndex = Number(button.dataset.setIndex);
+      container.onchange = (ev) => {
+        const check = ev.target.closest(".set-check");
+        if(!check || !container.contains(check)) return;
+        check.closest(".set-toggle-wrap")?.classList.toggle("active", check.checked);
+        const exerciseId = check.dataset.exerciseId;
+        const setIndex = Number(check.dataset.setIndex);
         const hidden = form.querySelector(`[name="sets_${exerciseId}"]`);
-        const current = safeJson(hidden?.value, []);
-        current[setIndex] = !current[setIndex];
+        const exercise = getWorkoutExercises(state.appData?.plan, form.querySelector('[name="workoutSession"]')?.value || "").find(item => item.id === exerciseId);
+        const current = exercise ? readExerciseSetState(form, exercise) : safeJson(hidden?.value, []);
         if(hidden) hidden.value = JSON.stringify(current);
-        button.classList.toggle("active", !!current[setIndex]);
         syncWorkoutFormToState(form);
-        updateWorkoutDraftStatus(`Set ${setIndex + 1} ${current[setIndex] ? "completed" : "cleared"}. Press Submit Workout to save.`);
+        updateWorkoutDraftStatus(`Set ${setIndex + 1} ${check.checked ? "completed" : "cleared"}. Press Submit Workout to save.`);
       };
+    }
+
+    function readExerciseSetState(form, exercise){
+      return Array.from({ length: exercise.sets }).map((_, idx) => {
+        const node = form.querySelector(`[name="set_${exercise.id}_${idx}"]`);
+        return !!node?.checked;
+      });
     }
 
     function syncWorkoutFormToState(form){
@@ -749,8 +757,10 @@
       getWorkoutExercises(state.appData?.plan, workoutSession).forEach((exercise) => {
         const hidden = form.querySelector(`[name="sets_${exercise.id}"]`);
         const weight = form.querySelector(`[name="weight_${exercise.id}"]`);
+        const sets = readExerciseSetState(form, exercise);
+        if(hidden) hidden.value = JSON.stringify(sets);
         existingEntries[exercise.id] = {
-          sets: safeJson(hidden?.value, Array(exercise.sets).fill(false)) || Array(exercise.sets).fill(false),
+          sets,
           weight: weight?.value || ""
         };
       });
@@ -1091,9 +1101,10 @@
             <input type="hidden" name="sets_${exercise.id}" value="${escapeAttr(JSON.stringify(entry.sets || Array(exercise.sets).fill(false)))}"/>
             <div class="inline" style="margin-top:10px">
               ${Array.from({ length: exercise.sets }).map((_, idx) => `
-                <button type="button" class="ghost-btn set-toggle ${entry.sets?.[idx] ? "active" : ""}" data-exercise-id="${exercise.id}" data-set-index="${idx}" style="padding:10px 12px">
-                  S${idx + 1}
-                </button>
+                <label class="set-toggle-wrap ${entry.sets?.[idx] ? "active" : ""}">
+                  <input class="set-check" type="checkbox" name="set_${exercise.id}_${idx}" data-exercise-id="${exercise.id}" data-set-index="${idx}" ${entry.sets?.[idx] ? "checked" : ""}/>
+                  <span class="ghost-btn set-toggle-label" style="padding:10px 12px">S${idx + 1}</span>
+                </label>
               `).join("")}
             </div>
           </div>
