@@ -177,7 +177,8 @@ async function handleApi(request, env, ctx, url) {
     const clientId = generatePlanMatch[1];
     const intake = await getLatestIntake(env, clientId);
     if (!intake) return json({ error: "Client intake is required before generating a plan." }, 400);
-    const normalized = await generatePlanFromIntake(env, intake.answers_json);
+    const progressContext = await getProgressContext(env, clientId);
+    const normalized = await generatePlanFromIntake(env, intake.answers_json, progressContext);
     await saveDraftPlan(env, clientId, intake.id, normalized);
     return json({ ok: true });
   }
@@ -302,7 +303,8 @@ async function getAdminClientDetail(env, clientId) {
   const plan = await getLatestPlan(env, clientId);
   const dailyLogs = await selectJsonRows(env, `SELECT * FROM daily_logs WHERE client_id = ? ORDER BY log_date DESC LIMIT 7`, [clientId]);
   const checkins = await selectJsonRows(env, `SELECT * FROM checkins WHERE client_id = ? ORDER BY checkin_date DESC LIMIT 8`, [clientId]);
-  return { client, user, intake, plan, dailyLogs, checkins };
+  const weeklyReview = await env.DB.prepare(`SELECT * FROM weekly_reviews WHERE client_id = ? ORDER BY updated_at DESC LIMIT 1`).bind(clientId).first();
+  return { client, user, intake, plan, dailyLogs, checkins, weeklyReview: parseStoredJsonRow(weeklyReview) };
 }
 
 async function getClientBootstrap(env, clientId) {
@@ -518,7 +520,18 @@ async function buildExportPayload(env, clientId) {
   return { exportedAt: nowIso(), clients: output };
 }
 
-async function generatePlanFromIntake(env, intake) {
+async function getProgressContext(env, clientId) {
+  const dailyLogs = await selectJsonRows(env, `SELECT * FROM daily_logs WHERE client_id = ? ORDER BY log_date DESC LIMIT 14`, [clientId]);
+  const checkins = await selectJsonRows(env, `SELECT * FROM checkins WHERE client_id = ? ORDER BY checkin_date DESC LIMIT 8`, [clientId]);
+  const weeklyReview = await env.DB.prepare(`SELECT * FROM weekly_reviews WHERE client_id = ? ORDER BY updated_at DESC LIMIT 1`).bind(clientId).first();
+  return {
+    dailyLogs,
+    checkins,
+    weeklyReview: parseStoredJsonRow(weeklyReview)
+  };
+}
+
+async function generatePlanFromIntake(env, intake, progressContext = {}) {
   if (!env.GEMINI_API_KEY) {
     return fallbackPlanFromIntake(intake, {
       source: "fallback",
@@ -530,12 +543,17 @@ async function generatePlanFromIntake(env, intake) {
   const prompt = [
     "You are generating a fitness coaching plan.",
     "Return JSON only.",
+    "For each meal in mealOptions, provide 6 or 7 practical varieties.",
+    "Each meal option list should mean the client chooses any 1 option for that meal, not all options together.",
+    "Make the food options cuisine-aware and realistic for daily repetition.",
+    "If progress data is provided, use it to adjust calories, macros, adherence guidance, meal simplicity, recovery, and training recommendations.",
+    "Pay attention to client notes, daily adherence, check-in trends, and weekly review consistency.",
     "Use this exact shape:",
     JSON.stringify({
       profileSummary: "string",
       calorieTarget: "string",
       macros: { protein: "string", carbs: "string", fat: "string" },
-      mealOptions: [{ meal: "Breakfast", options: ["opt1", "opt2"] }],
+      mealOptions: [{ meal: "Breakfast", options: [{ label: "opt1", calories: 450, protein: 35, carbs: 50, fat: 12 }] }],
       weeklyMealStructure: ["Mon - ..."],
       supplements: ["item"],
       workoutSplit: [{ day: "Day 1", exercises: ["exercise"] }],
@@ -544,7 +562,9 @@ async function generatePlanFromIntake(env, intake) {
       cautions: ["caution"]
     }),
     "Base the plan on this intake JSON:",
-    JSON.stringify(intake)
+    JSON.stringify(intake),
+    "Also use this recent progress JSON:",
+    JSON.stringify(buildProgressSummary(progressContext))
   ].join("\n");
 
   const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL || "gemini-2.0-flash"}:generateContent?key=${env.GEMINI_API_KEY}`;
@@ -565,7 +585,8 @@ async function generatePlanFromIntake(env, intake) {
       reason: `Gemini request failed with HTTP ${res.status}.`,
       details: trimForStorage(await res.text(), 500),
       model: env.GEMINI_MODEL || "gemini-2.0-flash",
-      generatedAt: nowIso()
+      generatedAt: nowIso(),
+      usedProgressData: true
     });
   }
 
@@ -578,15 +599,47 @@ async function generatePlanFromIntake(env, intake) {
       reason: "Gemini returned invalid JSON.",
       details: trimForStorage(text, 500),
       model: env.GEMINI_MODEL || "gemini-2.0-flash",
-      generatedAt: nowIso()
+      generatedAt: nowIso(),
+      usedProgressData: true
     });
   }
   return normalizePlan(parsed, intake, {
     source: "gemini",
     reason: "Gemini plan generated successfully.",
     model: env.GEMINI_MODEL || "gemini-2.0-flash",
-    generatedAt: nowIso()
+    generatedAt: nowIso(),
+    usedProgressData: true
   });
+}
+
+function buildProgressSummary(progressContext = {}) {
+  const dailyLogs = Array.isArray(progressContext.dailyLogs) ? progressContext.dailyLogs : [];
+  const checkins = Array.isArray(progressContext.checkins) ? progressContext.checkins : [];
+  const weeklyReview = progressContext.weeklyReview || null;
+  return {
+    dailyLogs: dailyLogs.map(log => ({
+      date: log.log_date,
+      meals: log.meals_json || {},
+      macros: log.macros_json || {},
+      hydration: log.hydration,
+      steps: log.steps,
+      cardio: log.cardio,
+      workout: log.workout_json || {},
+      notes: log.notes || ""
+    })),
+    checkins: checkins.map(item => ({
+      date: item.checkin_date,
+      weight: item.weight,
+      bodyFat: item.body_fat,
+      waist: item.waist,
+      hips: item.hips,
+      notes: item.notes || ""
+    })),
+    weeklyReview: weeklyReview ? {
+      weekKey: weeklyReview.week_key,
+      review: weeklyReview.review_json || {}
+    } : null
+  };
 }
 
 function fallbackPlanFromIntake(intake, generationMeta = {}) {
@@ -600,11 +653,35 @@ function fallbackPlanFromIntake(intake, generationMeta = {}) {
     calorieTarget: "Coach review required",
     macros: { protein: "High protein", carbs: "Moderate carbs", fat: "Balanced fats" },
     mealOptions: [
-      { meal: "Breakfast", options: ["Protein-rich breakfast", "Eggs / yogurt / oats rotation"] },
-      { meal: "Lunch", options: ["Main protein + carb + vegetables", "Cuisine-specific balanced plate"] },
-      { meal: "Dinner", options: ["Lean protein + vegetables", "Lighter carb focus post-workout"] }
+      { meal: "Breakfast", options: [
+        { label: "Eggs with idli or dosa", calories: 430, protein: 28, carbs: 38, fat: 18 },
+        { label: "Greek yogurt or curd bowl", calories: 360, protein: 26, carbs: 34, fat: 10 },
+        { label: "Oats with whey", calories: 390, protein: 32, carbs: 42, fat: 9 },
+        { label: "Paneer or tofu breakfast wrap", calories: 410, protein: 30, carbs: 30, fat: 18 },
+        { label: "Upma with added protein", calories: 400, protein: 24, carbs: 46, fat: 12 },
+        { label: "Poha with eggs or soy", calories: 420, protein: 27, carbs: 48, fat: 11 },
+        { label: "Smoothie with whey and fruit", calories: 350, protein: 30, carbs: 35, fat: 7 }
+      ] },
+      { meal: "Lunch", options: [
+        { label: "Rice with lean protein and vegetables", calories: 620, protein: 42, carbs: 68, fat: 18 },
+        { label: "Chapati with chicken or paneer curry", calories: 580, protein: 40, carbs: 48, fat: 22 },
+        { label: "Millet bowl with dal and vegetables", calories: 540, protein: 28, carbs: 70, fat: 14 },
+        { label: "Fish curry meal with controlled rice", calories: 560, protein: 38, carbs: 52, fat: 20 },
+        { label: "Curd rice plus grilled protein", calories: 590, protein: 36, carbs: 58, fat: 21 },
+        { label: "South Indian balanced thali plate", calories: 610, protein: 30, carbs: 74, fat: 18 },
+        { label: "Salad bowl with carb side and protein", calories: 500, protein: 38, carbs: 40, fat: 18 }
+      ] },
+      { meal: "Dinner", options: [
+        { label: "Lean protein with vegetables", calories: 460, protein: 42, carbs: 20, fat: 20 },
+        { label: "Chapati with egg or paneer curry", calories: 520, protein: 30, carbs: 40, fat: 24 },
+        { label: "Grilled fish with rice and veg", calories: 540, protein: 40, carbs: 46, fat: 18 },
+        { label: "Chicken stir fry with light carbs", calories: 480, protein: 38, carbs: 28, fat: 20 },
+        { label: "Tofu or paneer bowl", calories: 450, protein: 28, carbs: 24, fat: 24 },
+        { label: "Soup plus protein side", calories: 380, protein: 34, carbs: 18, fat: 16 },
+        { label: "Post-workout balanced plate", calories: 560, protein: 42, carbs: 48, fat: 18 }
+      ] }
     ],
-    weeklyMealStructure: ["Follow 3 structured meals daily and repeat high-protein options through the week."],
+    weeklyMealStructure: ["Choose any 1 breakfast, 1 lunch, and 1 dinner option each day.", "Follow 3 structured meals daily and repeat high-protein options through the week."],
     supplements: [injuries.medications || "Continue prescribed medication", injuries.supplements || "Supplements per coach review"].filter(Boolean),
     workoutSplit: [
       { day: "Day 1", exercises: ["Lower body strength", "Accessory work", "Short cardio finisher"] },
@@ -628,7 +705,7 @@ function normalizePlan(plan, intake, generationMetaOverride) {
       carbs: plan.macros?.carbs || "",
       fat: plan.macros?.fat || ""
     },
-    mealOptions: Array.isArray(plan.mealOptions) ? plan.mealOptions : [],
+    mealOptions: Array.isArray(plan.mealOptions) ? plan.mealOptions.map(normalizeMealSection) : [],
     weeklyMealStructure: Array.isArray(plan.weeklyMealStructure) ? plan.weeklyMealStructure : [],
     supplements: Array.isArray(plan.supplements) ? plan.supplements : [],
     workoutSplit: Array.isArray(plan.workoutSplit) ? plan.workoutSplit : [],
@@ -637,6 +714,27 @@ function normalizePlan(plan, intake, generationMetaOverride) {
     cautions: Array.isArray(plan.cautions) ? plan.cautions : [],
     generationMeta: plan.generationMeta || generationMetaOverride || null,
     intakeSnapshot: intake
+  };
+}
+
+function normalizeMealSection(section) {
+  return {
+    meal: section?.meal || "",
+    options: Array.isArray(section?.options) ? section.options.map(normalizeMealOption).filter(Boolean) : []
+  };
+}
+
+function normalizeMealOption(option) {
+  if (!option) return null;
+  if (typeof option === "string") {
+    return { label: option, calories: 0, protein: 0, carbs: 0, fat: 0 };
+  }
+  return {
+    label: option.label || option.name || "",
+    calories: Number(option.calories || 0),
+    protein: Number(option.protein || 0),
+    carbs: Number(option.carbs || 0),
+    fat: Number(option.fat || 0)
   };
 }
 
