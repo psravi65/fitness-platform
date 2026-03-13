@@ -722,29 +722,22 @@
     }
 
     function bindWorkoutSetButtons(form){
-      form.querySelectorAll(".set-toggle").forEach((button) => {
-        const toggle = (ev) => {
-          ev.preventDefault();
-          const exerciseId = button.dataset.exerciseId;
-          const setIndex = Number(button.dataset.setIndex);
-          const hidden = form.querySelector(`[name="sets_${exerciseId}"]`);
-          const current = safeJson(hidden?.value, []);
-          current[setIndex] = !current[setIndex];
-          if(hidden) hidden.value = JSON.stringify(current);
-          button.classList.toggle("active", !!current[setIndex]);
-          syncWorkoutFormToState(form);
-          updateWorkoutDraftStatus(`Set ${setIndex + 1} ${current[setIndex] ? "completed" : "cleared"}. Press Submit Workout to save.`);
-        };
-        if(window.PointerEvent){
-          button.onpointerup = toggle;
-          button.onclick = null;
-          button.ontouchend = null;
-        } else {
-          button.onclick = toggle;
-          button.onpointerup = null;
-          button.ontouchend = null;
-        }
-      });
+      const container = document.getElementById("workout-cards");
+      if(!container) return;
+      container.onclick = (ev) => {
+        const button = ev.target.closest(".set-toggle");
+        if(!button || !container.contains(button)) return;
+        ev.preventDefault();
+        const exerciseId = button.dataset.exerciseId;
+        const setIndex = Number(button.dataset.setIndex);
+        const hidden = form.querySelector(`[name="sets_${exerciseId}"]`);
+        const current = safeJson(hidden?.value, []);
+        current[setIndex] = !current[setIndex];
+        if(hidden) hidden.value = JSON.stringify(current);
+        button.classList.toggle("active", !!current[setIndex]);
+        syncWorkoutFormToState(form);
+        updateWorkoutDraftStatus(`Set ${setIndex + 1} ${current[setIndex] ? "completed" : "cleared"}. Press Submit Workout to save.`);
+      };
     }
 
     function syncWorkoutFormToState(form){
