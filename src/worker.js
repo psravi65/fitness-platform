@@ -520,7 +520,11 @@ async function buildExportPayload(env, clientId) {
 
 async function generatePlanFromIntake(env, intake) {
   if (!env.GEMINI_API_KEY) {
-    return fallbackPlanFromIntake(intake);
+    return fallbackPlanFromIntake(intake, {
+      source: "fallback",
+      reason: "GEMINI_API_KEY is not configured.",
+      generatedAt: nowIso()
+    });
   }
 
   const prompt = [
@@ -556,19 +560,36 @@ async function generatePlanFromIntake(env, intake) {
   });
 
   if (!res.ok) {
-    return fallbackPlanFromIntake(intake);
+    return fallbackPlanFromIntake(intake, {
+      source: "fallback",
+      reason: `Gemini request failed with HTTP ${res.status}.`,
+      details: trimForStorage(await res.text(), 500),
+      model: env.GEMINI_MODEL || "gemini-2.0-flash",
+      generatedAt: nowIso()
+    });
   }
 
   const data = await res.json();
   const text = data?.candidates?.[0]?.content?.parts?.map(part => part.text || "").join("") || "";
   const parsed = safeJson(text, null);
   if (!parsed || typeof parsed !== "object") {
-    return fallbackPlanFromIntake(intake);
+    return fallbackPlanFromIntake(intake, {
+      source: "fallback",
+      reason: "Gemini returned invalid JSON.",
+      details: trimForStorage(text, 500),
+      model: env.GEMINI_MODEL || "gemini-2.0-flash",
+      generatedAt: nowIso()
+    });
   }
-  return normalizePlan(parsed, intake);
+  return normalizePlan(parsed, intake, {
+    source: "gemini",
+    reason: "Gemini plan generated successfully.",
+    model: env.GEMINI_MODEL || "gemini-2.0-flash",
+    generatedAt: nowIso()
+  });
 }
 
-function fallbackPlanFromIntake(intake) {
+function fallbackPlanFromIntake(intake, generationMeta = {}) {
   const profile = intake.profile || {};
   const training = intake.training || {};
   const body = intake.bodyComposition || {};
@@ -595,10 +616,10 @@ function fallbackPlanFromIntake(intake) {
     progressMilestones: ["Track scale, measurements, and photos weekly.", "Review adherence after 2 weeks."],
     successRules: ["Protein at each meal", "Train consistently", "Sleep and hydration matter", "Track adherence weekly"],
     cautions: [injuries.injuries || "Respect injury constraints and use coach-approved exercise substitutions."]
-  }, intake);
+  }, intake, generationMeta);
 }
 
-function normalizePlan(plan, intake) {
+function normalizePlan(plan, intake, generationMetaOverride) {
   return {
     profileSummary: plan.profileSummary || "Structured coaching plan generated from intake.",
     calorieTarget: plan.calorieTarget || "Coach review required",
@@ -614,6 +635,7 @@ function normalizePlan(plan, intake) {
     progressMilestones: Array.isArray(plan.progressMilestones) ? plan.progressMilestones : [],
     successRules: Array.isArray(plan.successRules) ? plan.successRules : [],
     cautions: Array.isArray(plan.cautions) ? plan.cautions : [],
+    generationMeta: plan.generationMeta || generationMetaOverride || null,
     intakeSnapshot: intake
   };
 }
@@ -699,6 +721,12 @@ function safeJson(value, fallback) {
   } catch {
     return fallback;
   }
+}
+
+function trimForStorage(value, limit = 500) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  return text.length > limit ? `${text.slice(0, limit)}...` : text;
 }
 
 function generateTempPassword() {
