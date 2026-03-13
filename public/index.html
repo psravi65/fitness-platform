@@ -409,12 +409,50 @@
       }
     }
 
-    async function saveDailyLog(ev){
-      ev.preventDefault();
-      return saveDailyLogFromForm(ev.target, true);
+    function currentDailyPayload(date){
+      const current = state.appData?.dailyLog || {};
+      return {
+        log_date: date || current.log_date || new Date().toISOString().slice(0, 10),
+        meals_json: current.meals_json || {},
+        workout_json: current.workout_json || {},
+        macros_json: current.macros_json || {},
+        hydration: Number(current.hydration || 0),
+        steps: Number(current.steps || 0),
+        cardio: current.cardio || "",
+        notes: current.notes || ""
+      };
     }
 
-    async function saveDailyLogFromForm(formEl, showFlash){
+    async function persistDailyLog(date, next, showFlash, successMessage){
+      try{
+        await api("/api/app/daily-log/" + date, {
+          method: "PUT",
+          body: JSON.stringify({
+            meals: next.meals_json || {},
+            workout: next.workout_json || {},
+            macros: next.macros_json || {},
+            hydration: Number(next.hydration || 0),
+            steps: Number(next.steps || 0),
+            cardio: next.cardio || "",
+            notes: next.notes || ""
+          })
+        });
+        if(state.appData){
+          state.appData.dailyLog = { ...(state.appData.dailyLog || {}), ...next, log_date: date };
+        }
+        if(showFlash){
+          setFlash(successMessage);
+          await bootstrapForRoute();
+        }
+      }catch(err){
+        if(showFlash) setFlash(err.message, true);
+        throw err;
+      }
+    }
+
+    async function saveDietLog(ev){
+      ev.preventDefault();
+      const formEl = ev.target;
       const form = new FormData(formEl);
       const date = form.get("logDate");
       const meals = {
@@ -424,17 +462,11 @@
         snacks: form.get("snacks") || ""
       };
       const autoMacros = calcMealMacros(state.appData?.plan, meals);
-      const workoutSession = form.get("workoutSession") || "";
-      const selectedWorkout = getWorkoutSession(state.appData?.plan, workoutSession);
-      const payload = {
-        meals,
-        workout: {
-          session: workoutSession,
-          exercises: selectedWorkout?.exercises || [],
-          completed: form.get("workoutCompleted") === "on",
-          notes: form.get("workoutNotes") || ""
-        },
-        macros: {
+      const current = currentDailyPayload(date);
+      const next = {
+        ...current,
+        meals_json: meals,
+        macros_json: {
           calories: autoMacros.calories,
           protein: autoMacros.protein,
           carbs: autoMacros.carbs,
@@ -442,53 +474,48 @@
         },
         hydration: Number(form.get("hydration") || 0),
         steps: Number(form.get("steps") || 0),
-        cardio: form.get("cardio") || "",
         notes: form.get("notes") || ""
       };
       try{
-        await api("/api/app/daily-log/" + date, {
-          method: "PUT",
-          body: JSON.stringify(payload)
-        });
         updateAutoSaveStatus("Saved at " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
-        if(state.appData){
-          state.appData.dailyLog = {
-            ...(state.appData.dailyLog || {}),
-            log_date: date,
-            meals_json: payload.meals,
-            workout_json: payload.workout,
-            macros_json: payload.macros,
-            hydration: payload.hydration,
-            steps: payload.steps,
-            cardio: payload.cardio,
-            notes: payload.notes
-          };
-        }
-        if(showFlash){
-          setFlash("Daily log saved.");
-          await bootstrapForRoute();
-        }
+        await persistDailyLog(date, next, true, "Diet log saved.");
       }catch(err){
         updateAutoSaveStatus("Auto-save failed");
-        if(showFlash){
-          setFlash(err.message, true);
-        }
       }
     }
 
-    function attachDailyLogEnhancements(){
-      const form = document.getElementById("daily-log-form");
+    function attachDietLogEnhancements(){
+      const form = document.getElementById("diet-log-form");
       if(!form) return;
       if(dailyLogAutoSaveTimer) clearTimeout(dailyLogAutoSaveTimer);
       if(dayRolloverTimer) clearInterval(dayRolloverTimer);
       const scheduleAutoSave = () => {
         updateMacroInputsFromMeals(form);
-        updateWorkoutPreview(form);
         updateAutoSaveStatus("Saving...");
         clearTimeout(dailyLogAutoSaveTimer);
         dailyLogAutoSaveTimer = setTimeout(() => {
-          const liveForm = document.getElementById("daily-log-form");
-          if(liveForm) void saveDailyLogFromForm(liveForm, false);
+          const liveForm = document.getElementById("diet-log-form");
+          if(liveForm){
+            const data = new FormData(liveForm);
+            const date = data.get("logDate");
+            const meals = {
+              breakfast: data.get("breakfast") || "",
+              lunch: data.get("lunch") || "",
+              dinner: data.get("dinner") || "",
+              snacks: data.get("snacks") || ""
+            };
+            const autoMacros = calcMealMacros(state.appData?.plan, meals);
+            const current = currentDailyPayload(date);
+            const next = {
+              ...current,
+              meals_json: meals,
+              macros_json: autoMacros,
+              hydration: Number(data.get("hydration") || 0),
+              steps: Number(data.get("steps") || 0),
+              notes: data.get("notes") || ""
+            };
+            void persistDailyLog(date, next, false, "");
+          }
         }, 1200);
       };
       form.querySelectorAll("input, textarea, select").forEach((field) => {
@@ -496,16 +523,14 @@
         field.addEventListener("change", scheduleAutoSave);
       });
       updateMacroInputsFromMeals(form);
-      updateWorkoutPreview(form);
       dayRolloverTimer = setInterval(() => {
-        const liveForm = document.getElementById("daily-log-form");
+        const liveForm = document.getElementById("diet-log-form");
         if(!liveForm) return;
         const dateInput = liveForm.querySelector('input[name="logDate"]');
         const today = new Date().toISOString().slice(0, 10);
         if(dateInput && dateInput.value !== today){
-          void saveDailyLogFromForm(liveForm, false).finally(async () => {
-            await bootstrapForRoute();
-          });
+          const event = { preventDefault(){}, target: liveForm };
+          void saveDietLog(event).finally(async () => { await bootstrapForRoute(); });
         }
       }, 60000);
     }
@@ -527,6 +552,37 @@
         });
         setFlash("Check-in saved.");
         await bootstrapForRoute();
+      }catch(err){
+        setFlash(err.message, true);
+      }
+    }
+
+    async function saveWorkoutLog(ev){
+      ev.preventDefault();
+      const form = new FormData(ev.target);
+      const date = form.get("logDate");
+      const workoutSession = form.get("workoutSession") || "";
+      const exerciseEntries = {};
+      getWorkoutExercises(state.appData?.plan, workoutSession).forEach((exercise) => {
+        exerciseEntries[exercise.id] = {
+          sets: safeJson(form.get(`sets_${exercise.id}`), Array(exercise.sets).fill(false)) || Array(exercise.sets).fill(false),
+          weight: form.get(`weight_${exercise.id}`) || ""
+        };
+      });
+      const current = currentDailyPayload(date);
+      const next = {
+        ...current,
+        cardio: form.get("cardio") || "",
+        workout_json: {
+          session: workoutSession,
+          exercises: getWorkoutSession(state.appData?.plan, workoutSession)?.exercises || [],
+          entries: exerciseEntries,
+          completed: form.get("workoutCompleted") === "on",
+          notes: form.get("workoutNotes") || ""
+        }
+      };
+      try{
+        await persistDailyLog(date, next, true, "Workout log saved.");
       }catch(err){
         setFlash(err.message, true);
       }
@@ -609,6 +665,39 @@
       }catch(err){
         setFlash(err.message, true);
       }
+    }
+
+    function attachWorkoutLogEnhancements(){
+      const form = document.getElementById("workout-log-form");
+      if(!form) return;
+      const sync = () => {
+        const selected = form.querySelector('[name="workoutSession"]')?.value || "";
+        const container = document.getElementById("workout-cards");
+        const entries = state.appData?.dailyLog?.workout_json?.entries || {};
+        if(container){
+          container.innerHTML = renderWorkoutExerciseCards(state.appData?.plan, selected, entries);
+          bindWorkoutSetButtons(form);
+        }
+      };
+      form.querySelector('[name="workoutSession"]')?.addEventListener("change", sync);
+      sync();
+    }
+
+    function bindWorkoutSetButtons(form){
+      form.querySelectorAll(".set-toggle").forEach((button) => {
+        button.onclick = () => {
+          const exerciseId = button.dataset.exerciseId;
+          const setIndex = Number(button.dataset.setIndex);
+          const hidden = form.querySelector(`[name="sets_${exerciseId}"]`);
+          const current = safeJson(hidden?.value, []);
+          current[setIndex] = !current[setIndex];
+          if(hidden) hidden.value = JSON.stringify(current);
+          button.classList.toggle("active", !!current[setIndex]);
+          button.style.background = current[setIndex] ? "rgba(255,147,80,.18)" : "";
+          button.style.borderColor = current[setIndex] ? "rgba(255,147,80,.45)" : "";
+          button.style.color = current[setIndex] ? "#ffb06c" : "";
+        };
+      });
     }
 
     function renderPlan(plan, options = {}){
@@ -870,6 +959,32 @@
       return getWorkoutSessions(plan).find(item => item.day === dayName) || null;
     }
 
+    function slugify(value){
+      return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+    }
+
+    function parseWorkoutExercise(raw, index){
+      const text = String(raw || "").trim();
+      const match = text.match(/^(.*?)(?:\s+(\d+)\s*[x×]\s*([0-9A-Za-z+\-\/ ]+))?(?:\s*@\s*(.+))?$/);
+      const name = (match?.[1] || text).trim();
+      const sets = Number(match?.[2] || 3);
+      const reps = (match?.[3] || "8-12").trim();
+      const target = (match?.[4] || "").trim();
+      return {
+        id: `${slugify(name)}-${index}`,
+        name,
+        sets,
+        reps,
+        target
+      };
+    }
+
+    function getWorkoutExercises(plan, dayName){
+      const session = getWorkoutSession(plan, dayName);
+      if(!session) return [];
+      return (session.exercises || []).map((exercise, index) => parseWorkoutExercise(exercise, index));
+    }
+
     function renderWorkoutSelect(plan, selectedValue){
       const sessions = getWorkoutSessions(plan);
       return `
@@ -888,6 +1003,34 @@
       if(node){
         node.innerHTML = session ? `<div class="plan-list"><div>${session.exercises.map(ex => escapeHtml(ex)).join("<br/>")}</div></div>` : `<div class="empty">Select a workout to see today's activity list.</div>`;
       }
+    }
+
+    function renderWorkoutExerciseCards(plan, selectedWorkout, entries = {}){
+      const exercises = getWorkoutExercises(plan, selectedWorkout);
+      if(!selectedWorkout) return `<div class="empty">Select a workout to start logging sets.</div>`;
+      if(!exercises.length) return `<div class="empty">No exercises found for this workout.</div>`;
+      return exercises.map((exercise) => {
+        const entry = entries[exercise.id] || { sets: Array(exercise.sets).fill(false), weight: exercise.target || "" };
+        return `
+          <div class="client-list-item">
+            <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
+              <div>
+                <div style="font-size:13px;font-weight:700;color:#f0f4ff">${escapeHtml(exercise.name)}</div>
+                <div class="subtle" style="margin-top:2px">${exercise.sets} sets • ${escapeHtml(exercise.reps)} reps${exercise.target ? ` • Target ${escapeHtml(exercise.target)}` : ""}</div>
+              </div>
+              <input name="weight_${exercise.id}" value="${escapeAttr(entry.weight || "")}" placeholder="Weight" style="width:92px;font-family:ui-monospace,monospace"/>
+            </div>
+            <input type="hidden" name="sets_${exercise.id}" value="${escapeAttr(JSON.stringify(entry.sets || Array(exercise.sets).fill(false)))}"/>
+            <div class="inline" style="margin-top:10px">
+              ${Array.from({ length: exercise.sets }).map((_, idx) => `
+                <button type="button" class="ghost-btn set-toggle ${entry.sets?.[idx] ? "active" : ""}" data-exercise-id="${exercise.id}" data-set-index="${idx}" style="padding:10px 12px;min-width:48px;${entry.sets?.[idx] ? "background:rgba(255,147,80,.18);border-color:rgba(255,147,80,.45);color:#ffb06c;" : ""}">
+                  S${idx + 1}
+                </button>
+              `).join("")}
+            </div>
+          </div>
+        `;
+      }).join("");
     }
 
     function calcMealMacros(plan, meals){
@@ -946,14 +1089,15 @@
         "/app": "🏠",
         "/app/intake": "📝",
         "/app/plan": "📋",
-        "/app/log": "📊"
+        "/app/diet": "🥗",
+        "/app/workout": "💪"
       }[path] || "•";
     }
 
     function render(){
       const root = document.getElementById("app");
       const path = state.route;
-      if(path !== "/app/log"){
+      if(path !== "/app/diet"){
         if(dailyLogAutoSaveTimer) clearTimeout(dailyLogAutoSaveTimer);
         if(dayRolloverTimer) clearInterval(dayRolloverTimer);
       }
@@ -1026,7 +1170,8 @@
         ["/app", "Home"],
         ["/app/intake", "Intake"],
         ["/app/plan", "Plan"],
-        ["/app/log", "Log"]
+        ["/app/diet", "Diet"],
+        ["/app/workout", "Workout"]
       ];
 
       let content = "";
@@ -1193,7 +1338,8 @@
                 <div class="subtle" style="margin-top:4px">${app.plan ? "Your current plan is live. Follow it and update your log every day." : "Complete your intake and keep your log updated so your coach can review faster."}</div>
                 <div class="inline" style="margin-top:12px">
                   <button class="action-btn" data-nav="/app/plan">Open Plan</button>
-                  <button class="ghost-btn" data-nav="/app/log">Open Log</button>
+                  <button class="ghost-btn" data-nav="/app/diet">Open Diet</button>
+                  <button class="ghost-btn" data-nav="/app/workout">Open Workout</button>
                 </div>
               </div>
               <div class="client-panel">
@@ -1205,7 +1351,7 @@
                   </div>
                   <div class="client-list-item">
                     <strong style="color:#f0f4ff">Coach note</strong>
-                    <div class="subtle" style="margin-top:4px">${app.plan ? "Coach published your plan. Use the Plan tab for guidance and the Log tab for progress tracking." : "Your coach will review your intake and progress before publishing your plan."}</div>
+                    <div class="subtle" style="margin-top:4px">${app.plan ? "Coach published your plan. Use the Plan tab for guidance and the Diet and Workout tabs for progress tracking." : "Your coach will review your intake and progress before publishing your plan."}</div>
                   </div>
                 </div>
               </div>
@@ -1217,21 +1363,19 @@
           content = app.canEditIntake
             ? `<div class="client-shell">${flash}<div class="client-panel"><div class="client-kicker">Intake</div><h2 style="margin-top:8px">Tell Your Coach About You</h2><p class="subtle">Submit this once. After that, your coach controls when it can be edited.</p><div style="margin-top:18px">${renderIntakeForm(app.intake?.answers_json || {}, "Submit Intake", "return false;")}</div></div></div>`
             : `<div class="client-shell">${flash}<div class="client-panel"><div class="notice success">Your intake has been submitted. If you need to change it, ask your coach to enable editing.</div><div style="margin-top:18px">${renderIntakeForm(app.intake?.answers_json || {}, "Submitted", "return false;")}</div></div></div>`;
-        } else if(path === "/app/log"){
+        } else if(path === "/app/diet"){
           const breakfastSection = getPlanMealSection(app.plan, "Breakfast");
           const lunchSection = getPlanMealSection(app.plan, "Lunch");
           const dinnerSection = getPlanMealSection(app.plan, "Dinner");
-          const selectedWorkout = dailyLog.workout_json?.session || "";
-          const selectedWorkoutBlock = getWorkoutSession(app.plan, selectedWorkout);
           content = `
             <div class="client-shell">
               ${flash}
               <div class="client-panel">
-                <div class="client-kicker">Daily Log</div>
-                <h2 style="margin-top:8px">Track Today</h2>
-                <p class="subtle">Meals, workout, hydration, and notes in one clean flow.</p>
+                <div class="client-kicker">Diet Log</div>
+                <h2 style="margin-top:8px">Track Meals</h2>
+                <p class="subtle">Choose meal options and let calories and macros fill automatically.</p>
               </div>
-              <form class="grid" id="daily-log-form">
+              <form class="grid" id="diet-log-form">
                 <div class="client-panel">
                   <h3>Meals & Macros</h3>
                   <div class="subtle" id="autosave-status" style="margin-top:6px">${state.autoSaveStatus || "Changes auto-save while you type."}</div>
@@ -1255,20 +1399,35 @@
                   </div>
                 </div>
                 <div class="client-panel">
-                  <h3>Workout</h3>
+                  <h3>Diet Notes</h3>
                   <div class="grid">
+                    <label><span>General notes</span><textarea name="notes">${escapeHtml(dailyLog.notes || "")}</textarea></label>
+                    <button class="action-btn" type="submit">Save Diet Log</button>
+                  </div>
+                </div>
+              </form>
+            </div>
+          `;
+        } else if(path === "/app/workout"){
+          const selectedWorkout = dailyLog.workout_json?.session || "";
+          content = `
+            <div class="client-shell">
+              ${flash}
+              <div class="client-panel">
+                <div class="client-kicker">Workout Log</div>
+                <h2 style="margin-top:8px">Track Training</h2>
+                <p class="subtle">Pick today’s session, tap completed sets, and enter weights.</p>
+              </div>
+              <form class="grid" id="workout-log-form">
+                <div class="client-panel">
+                  <div class="grid">
+                    <label><span>Date</span><input name="logDate" value="${dailyLog.log_date || today}" required/></label>
                     <label><span>Workout Session</span>${renderWorkoutSelect(app.plan, selectedWorkout)}</label>
-                    <div id="workout-preview">${selectedWorkoutBlock ? `<div class="plan-list"><div>${selectedWorkoutBlock.exercises.map(ex => escapeHtml(ex)).join("<br/>")}</div></div>` : `<div class="empty">Select a workout to see today's activity list.</div>`}</div>
+                    <div id="workout-cards">${renderWorkoutExerciseCards(app.plan, selectedWorkout, dailyLog.workout_json?.entries || {})}</div>
                     <label><span>Cardio</span><input name="cardio" value="${escapeHtml(dailyLog.cardio || "")}"/></label>
                     <label><span>Workout Notes</span><textarea name="workoutNotes">${escapeHtml(dailyLog.workout_json?.notes || "")}</textarea></label>
                     <label><input type="checkbox" name="workoutCompleted" ${dailyLog.workout_json?.completed ? "checked" : ""}/> Workout completed</label>
-                  </div>
-                </div>
-                <div class="client-panel">
-                  <h3>Notes</h3>
-                  <div class="grid">
-                    <label><span>General notes</span><textarea name="notes">${escapeHtml(dailyLog.notes || "")}</textarea></label>
-                    <button class="action-btn" type="submit">Save Daily Log</button>
+                    <button class="action-btn" type="submit">Save Workout Log</button>
                   </div>
                 </div>
               </form>
@@ -1396,13 +1555,16 @@
           intakeForm.querySelectorAll("input, textarea, button").forEach(node => node.disabled = true);
         }
       }
-      if(!isAdmin && path === "/app/log"){
-        document.getElementById("daily-log-form").onsubmit = saveDailyLog;
+      if(!isAdmin && path === "/app/diet"){
+        document.getElementById("diet-log-form").onsubmit = saveDietLog;
+        attachDietLogEnhancements();
+      }
+      if(!isAdmin && path === "/app/workout"){
+        document.getElementById("workout-log-form").onsubmit = saveWorkoutLog;
         document.getElementById("checkin-form").onsubmit = saveCheckin;
         document.getElementById("review-form").onsubmit = saveWeeklyReview;
         document.getElementById("password-form").onsubmit = changePassword;
-        attachDailyLogEnhancements();
-        updateWorkoutPreview(document.getElementById("daily-log-form"));
+        attachWorkoutLogEnhancements();
       }
     }
 
