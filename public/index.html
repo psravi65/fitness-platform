@@ -385,22 +385,24 @@
     async function saveDailyLogFromForm(formEl, showFlash){
       const form = new FormData(formEl);
       const date = form.get("logDate");
+      const meals = {
+        breakfast: form.get("breakfast") || "",
+        lunch: form.get("lunch") || "",
+        dinner: form.get("dinner") || "",
+        snacks: form.get("snacks") || ""
+      };
+      const autoMacros = calcMealMacros(state.appData?.plan, meals);
       const payload = {
-        meals: {
-          breakfast: form.get("breakfast") || "",
-          lunch: form.get("lunch") || "",
-          dinner: form.get("dinner") || "",
-          snacks: form.get("snacks") || ""
-        },
+        meals,
         workout: {
           completed: form.get("workoutCompleted") === "on",
           notes: form.get("workoutNotes") || ""
         },
         macros: {
-          calories: Number(form.get("calories") || 0),
-          protein: Number(form.get("protein") || 0),
-          carbs: Number(form.get("carbs") || 0),
-          fat: Number(form.get("fat") || 0)
+          calories: autoMacros.calories,
+          protein: autoMacros.protein,
+          carbs: autoMacros.carbs,
+          fat: autoMacros.fat
         },
         hydration: Number(form.get("hydration") || 0),
         steps: Number(form.get("steps") || 0),
@@ -444,6 +446,7 @@
       if(dailyLogAutoSaveTimer) clearTimeout(dailyLogAutoSaveTimer);
       if(dayRolloverTimer) clearInterval(dayRolloverTimer);
       const scheduleAutoSave = () => {
+        updateMacroInputsFromMeals(form);
         updateAutoSaveStatus("Saving...");
         clearTimeout(dailyLogAutoSaveTimer);
         dailyLogAutoSaveTimer = setTimeout(() => {
@@ -451,10 +454,11 @@
           if(liveForm) void saveDailyLogFromForm(liveForm, false);
         }, 1200);
       };
-      form.querySelectorAll("input, textarea").forEach((field) => {
+      form.querySelectorAll("input, textarea, select").forEach((field) => {
         field.addEventListener("input", scheduleAutoSave);
         field.addEventListener("change", scheduleAutoSave);
       });
+      updateMacroInputsFromMeals(form);
       dayRolloverTimer = setInterval(() => {
         const liveForm = document.getElementById("daily-log-form");
         if(!liveForm) return;
@@ -564,7 +568,8 @@
           <div class="split">
             <div class="card plan-section">
               <h3>Meals</h3>
-              ${(data.mealOptions || []).map(section => `<div><strong>${section.meal}</strong><div class="plan-list">${section.options.map(opt => `<div>${opt}</div>`).join("")}</div></div>`).join("")}
+              <div class="subtle">Choose any 1 option for each meal. These are alternatives, not items to eat together.</div>
+              ${(data.mealOptions || []).map(section => `<div><strong>${section.meal}</strong><div class="plan-list">${(section.options || []).map(opt => `<div>${escapeHtml(formatMealOptionLine(opt))}</div>`).join("")}</div></div>`).join("")}
             </div>
             <div class="card plan-section">
               <h3>Training</h3>
@@ -588,7 +593,7 @@
           carbs: plan.macros?.carbs || "",
           fat: plan.macros?.fat || ""
         },
-        mealOptions: Array.isArray(plan.mealOptions) ? plan.mealOptions : [],
+        mealOptions: Array.isArray(plan.mealOptions) ? plan.mealOptions.map(normalizeMealSection) : [],
         weeklyMealStructure: Array.isArray(plan.weeklyMealStructure) ? plan.weeklyMealStructure : [],
         supplements: Array.isArray(plan.supplements) ? plan.supplements : [],
         workoutSplit: Array.isArray(plan.workoutSplit) ? plan.workoutSplit : [],
@@ -610,7 +615,7 @@
     }
 
     function renderPlanEditor(plan){
-      const meals = (plan.mealOptions || []).map(section => `${section.meal}: ${(section.options || []).join(" | ")}`).join("\n");
+      const meals = (plan.mealOptions || []).map(section => `${section.meal}: ${(section.options || []).map(formatMealOptionLine).join(" | ")}`).join("\n");
       const workouts = (plan.workoutSplit || []).map(section => `${section.day}: ${(section.exercises || []).join(" | ")}`).join("\n");
       return `
         <form class="grid" id="plan-edit-form" style="margin-top:12px">
@@ -628,8 +633,8 @@
           </div>
           <label>
             <span>Meal Options</span>
-            <textarea name="mealOptions" placeholder="Breakfast: Eggs | Oats&#10;Lunch: Rice | Chicken | Vegetables">${escapeHtml(meals)}</textarea>
-            <div class="footer-note">One line per meal. Use <code>Meal: item | item | item</code>.</div>
+            <textarea name="mealOptions" placeholder="Breakfast: Oats [390 kcal, P32 C42 F9] | Eggs [430 kcal, P28 C38 F18]">${escapeHtml(meals)}</textarea>
+            <div class="footer-note">One line per meal. Use <code>Meal: item [kcal, P, C, F] | item [kcal, P, C, F]</code>.</div>
           </label>
           <label>
             <span>Workout Split</span>
@@ -657,7 +662,7 @@
       if(!form) return normalizeEditablePlan(state.pendingPlanEdit || {});
       const data = new FormData(form);
       const parseList = (value) => String(value || "").split("\n").map(item => item.trim()).filter(Boolean);
-      const parseSectioned = (value, keyName, valueName) => String(value || "")
+      const parseSectioned = (value, keyName, valueName, mapItem = (item) => item) => String(value || "")
         .split("\n")
         .map(line => line.trim())
         .filter(Boolean)
@@ -667,7 +672,7 @@
           const tail = separator >= 0 ? line.slice(separator + 1) : "";
           return {
             [keyName]: head,
-            [valueName]: tail.split("|").map(item => item.trim()).filter(Boolean)
+            [valueName]: tail.split("|").map(item => item.trim()).filter(Boolean).map(mapItem)
           };
         })
         .filter(item => item[keyName]);
@@ -679,7 +684,7 @@
           carbs: String(data.get("macroCarbs") || "").trim(),
           fat: String(data.get("macroFat") || "").trim()
         },
-        mealOptions: parseSectioned(data.get("mealOptions"), "meal", "options"),
+        mealOptions: parseSectioned(data.get("mealOptions"), "meal", "options", parseMealOptionText),
         weeklyMealStructure: parseList(data.get("weeklyMealStructure")),
         supplements: parseList(data.get("supplements")),
         workoutSplit: parseSectioned(data.get("workoutSplit"), "day", "exercises"),
@@ -720,6 +725,103 @@
         .replaceAll("<", "&lt;")
         .replaceAll(">", "&gt;")
         .replaceAll('"', "&quot;");
+    }
+
+    function normalizeMealSection(section){
+      return {
+        meal: section?.meal || "",
+        options: Array.isArray(section?.options) ? section.options.map(normalizeMealOption).filter(Boolean) : []
+      };
+    }
+
+    function normalizeMealOption(option){
+      if(!option) return null;
+      if(typeof option === "string") return { label: option, calories: 0, protein: 0, carbs: 0, fat: 0 };
+      return {
+        label: option.label || option.name || "",
+        calories: Number(option.calories || 0),
+        protein: Number(option.protein || 0),
+        carbs: Number(option.carbs || 0),
+        fat: Number(option.fat || 0)
+      };
+    }
+
+    function formatMealOptionLine(option){
+      const item = normalizeMealOption(option) || { label: "" };
+      const macroText = `${item.calories || 0} kcal, P${item.protein || 0} C${item.carbs || 0} F${item.fat || 0}`;
+      return `${item.label || ""} [${macroText}]`;
+    }
+
+    function parseMealOptionText(text){
+      const raw = String(text || "").trim();
+      const match = raw.match(/^(.*?)\s*\[(.*?)\]\s*$/);
+      if(!match) return { label: raw, calories: 0, protein: 0, carbs: 0, fat: 0 };
+      const label = match[1].trim();
+      const meta = match[2];
+      const read = (pattern) => {
+        const found = meta.match(pattern);
+        return found ? Number(found[1]) : 0;
+      };
+      return {
+        label,
+        calories: read(/(\d+(?:\.\d+)?)\s*kcal/i),
+        protein: read(/P\s*(\d+(?:\.\d+)?)/i),
+        carbs: read(/C\s*(\d+(?:\.\d+)?)/i),
+        fat: read(/F\s*(\d+(?:\.\d+)?)/i)
+      };
+    }
+
+    function getPlanMealSection(plan, mealName){
+      const data = plan?.effectivePlan || plan || {};
+      return (data.mealOptions || []).map(normalizeMealSection).find(section => section.meal?.toLowerCase() === mealName.toLowerCase()) || null;
+    }
+
+    function renderMealSelect(name, section, selectedValue){
+      const options = section?.options || [];
+      return `
+        <select name="${name}">
+          <option value="">Select an option</option>
+          ${options.map(option => `<option value="${escapeAttr(option.label)}" ${option.label === selectedValue ? "selected" : ""}>${escapeHtml(formatMealOptionLine(option))}</option>`).join("")}
+        </select>
+      `;
+    }
+
+    function findMealOption(plan, mealName, label){
+      const section = getPlanMealSection(plan, mealName);
+      if(!section) return null;
+      return (section.options || []).find(option => option.label === label) || null;
+    }
+
+    function calcMealMacros(plan, meals){
+      const totals = { calories: 0, protein: 0, carbs: 0, fat: 0 };
+      ["breakfast","lunch","dinner"].forEach((mealName) => {
+        const option = findMealOption(plan, mealName, meals?.[mealName] || "");
+        if(option){
+          totals.calories += Number(option.calories || 0);
+          totals.protein += Number(option.protein || 0);
+          totals.carbs += Number(option.carbs || 0);
+          totals.fat += Number(option.fat || 0);
+        }
+      });
+      return totals;
+    }
+
+    function updateMacroInputsFromMeals(formEl){
+      if(!formEl) return;
+      const meals = {
+        breakfast: formEl.querySelector('[name="breakfast"]')?.value || "",
+        lunch: formEl.querySelector('[name="lunch"]')?.value || "",
+        dinner: formEl.querySelector('[name="dinner"]')?.value || ""
+      };
+      const totals = calcMealMacros(state.appData?.plan, meals);
+      const setField = (name, value) => {
+        const input = formEl.querySelector(`[name="${name}"]`);
+        if(input) input.value = value;
+      };
+      setField("calories", totals.calories);
+      setField("protein", totals.protein);
+      setField("carbs", totals.carbs);
+      setField("fat", totals.fat);
     }
 
     function currentWeekKey(){
@@ -867,7 +969,7 @@
               ${state.draftPassword ? `<div class="success" style="margin-bottom:12px">Temporary password: <strong>${escapeHtml(state.draftPassword)}</strong></div>` : ""}
               <div class="grid">
                 <div class="card">
-                  <div class="toolbar"><h3>Intake</h3><button class="ghost-btn" id="generate-plan">Generate Draft</button></div>
+                  <div class="toolbar"><h3>Intake</h3><button class="ghost-btn" id="generate-plan">Regenerate Draft From Intake + Progress</button></div>
                   <div id="admin-intake-form">${renderIntakeForm(detail.intake?.answers_json || {}, "Save Intake", "return false;", detail.client.id)}</div>
                 </div>
                 <div class="card">
@@ -888,11 +990,16 @@
                 <div class="split">
                   <div class="card">
                     <h3>Recent Daily Logs</h3>
-                    ${detail.dailyLogs.length ? `<div class="plan-list" style="margin-top:12px">${detail.dailyLogs.map(log => `<div><strong>${log.log_date}</strong><br/>Calories: ${log.macros_json.calories || 0}, Protein: ${log.macros_json.protein || 0}, Steps: ${log.steps || 0}</div>`).join("")}</div>` : '<div class="empty" style="margin-top:12px">No logs yet.</div>'}
+                    <div class="subtle">Coach notes, meal notes, and adherence from these entries are used during regeneration.</div>
+                    ${detail.dailyLogs.length ? `<div class="plan-list" style="margin-top:12px">${detail.dailyLogs.map(log => `<div><strong>${log.log_date}</strong><br/>Calories: ${log.macros_json.calories || 0}, Protein: ${log.macros_json.protein || 0}, Steps: ${log.steps || 0}${log.notes ? `<br/>Notes: ${escapeHtml(log.notes)}` : ""}${log.workout_json?.notes ? `<br/>Workout: ${escapeHtml(log.workout_json.notes)}` : ""}</div>`).join("")}</div>` : '<div class="empty" style="margin-top:12px">No logs yet.</div>'}
                   </div>
                   <div class="card">
                     <h3>Check-ins</h3>
-                    ${detail.checkins.length ? `<div class="plan-list" style="margin-top:12px">${detail.checkins.map(item => `<div><strong>${item.checkin_date}</strong><br/>Weight: ${item.weight || "-"} • Body fat: ${item.body_fat || "-"}</div>`).join("")}</div>` : '<div class="empty" style="margin-top:12px">No check-ins yet.</div>'}
+                    ${detail.checkins.length ? `<div class="plan-list" style="margin-top:12px">${detail.checkins.map(item => `<div><strong>${item.checkin_date}</strong><br/>Weight: ${item.weight || "-"} • Body fat: ${item.body_fat || "-"}${item.notes ? `<br/>Notes: ${escapeHtml(item.notes)}` : ""}</div>`).join("")}</div>` : '<div class="empty" style="margin-top:12px">No check-ins yet.</div>'}
+                    <div style="margin-top:12px">
+                      <h3 style="margin-bottom:8px">Latest Weekly Review</h3>
+                      ${detail.weeklyReview?.review_json ? `<div class="plan-list"><div><strong>${escapeHtml(detail.weeklyReview.week_key || "Latest week")}</strong><br/>Weight tracked: ${detail.weeklyReview.review_json.weight ? "Yes" : "No"}<br/>Workouts completed: ${detail.weeklyReview.review_json.workouts ? "Yes" : "No"}<br/>Protein hit: ${detail.weeklyReview.review_json.protein ? "Yes" : "No"}<br/>Sleep hit: ${detail.weeklyReview.review_json.sleep ? "Yes" : "No"}</div></div>` : '<div class="empty" style="margin-top:12px">No weekly review yet.</div>'}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -909,6 +1016,9 @@
         } else if(path === "/app/intake"){
           content = `<div class="panel"><h2>Intake Form</h2><p class="subtle">Complete this once so the coach can generate and publish your plan.</p>${flash}<div style="margin-top:18px">${renderIntakeForm(app.intake?.answers_json || {}, "Save Intake", "return false;")}</div></div>`;
         } else if(path === "/app/log"){
+          const breakfastSection = getPlanMealSection(app.plan, "Breakfast");
+          const lunchSection = getPlanMealSection(app.plan, "Lunch");
+          const dinnerSection = getPlanMealSection(app.plan, "Dinner");
           content = `
             <div class="panel">
               <h2>Daily Logging</h2>
@@ -918,17 +1028,18 @@
                 <div class="card">
                   <h3>Daily Log</h3>
                   <div class="subtle" id="autosave-status" style="margin-top:6px">${state.autoSaveStatus || "Changes auto-save while you type."}</div>
+                  <div class="subtle" style="margin-top:6px">Breakfast, lunch, and dinner totals are auto-calculated from the meal option you select.</div>
                   <form class="grid" id="daily-log-form" style="margin-top:12px">
                     <label><span>Date</span><input name="logDate" value="${dailyLog.log_date || today}" required/></label>
-                    <label><span>Breakfast</span><input name="breakfast" value="${escapeHtml(dailyLog.meals_json?.breakfast || "")}"/></label>
-                    <label><span>Lunch</span><input name="lunch" value="${escapeHtml(dailyLog.meals_json?.lunch || "")}"/></label>
-                    <label><span>Dinner</span><input name="dinner" value="${escapeHtml(dailyLog.meals_json?.dinner || "")}"/></label>
+                    <label><span>Breakfast</span>${renderMealSelect("breakfast", breakfastSection, dailyLog.meals_json?.breakfast || "")}</label>
+                    <label><span>Lunch</span>${renderMealSelect("lunch", lunchSection, dailyLog.meals_json?.lunch || "")}</label>
+                    <label><span>Dinner</span>${renderMealSelect("dinner", dinnerSection, dailyLog.meals_json?.dinner || "")}</label>
                     <label><span>Snacks</span><input name="snacks" value="${escapeHtml(dailyLog.meals_json?.snacks || "")}"/></label>
                     <div class="grid cols-2">
-                      <label><span>Calories</span><input name="calories" value="${dailyLog.macros_json?.calories || 0}"/></label>
-                      <label><span>Protein</span><input name="protein" value="${dailyLog.macros_json?.protein || 0}"/></label>
-                      <label><span>Carbs</span><input name="carbs" value="${dailyLog.macros_json?.carbs || 0}"/></label>
-                      <label><span>Fat</span><input name="fat" value="${dailyLog.macros_json?.fat || 0}"/></label>
+                      <label><span>Calories</span><input name="calories" value="${dailyLog.macros_json?.calories || 0}" readonly/></label>
+                      <label><span>Protein</span><input name="protein" value="${dailyLog.macros_json?.protein || 0}" readonly/></label>
+                      <label><span>Carbs</span><input name="carbs" value="${dailyLog.macros_json?.carbs || 0}" readonly/></label>
+                      <label><span>Fat</span><input name="fat" value="${dailyLog.macros_json?.fat || 0}" readonly/></label>
                       <label><span>Hydration (L)</span><input name="hydration" value="${dailyLog.hydration || 0}"/></label>
                       <label><span>Steps</span><input name="steps" value="${dailyLog.steps || 0}"/></label>
                     </div>
