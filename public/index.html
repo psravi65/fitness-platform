@@ -747,27 +747,48 @@
     let dayRolloverTimer = null;
     let workoutDraftStatus = "";
 
+    // Field meta: [key, label, { type, options?, placeholder?, hint? }]
     const intakeSections = [
-      { key: "profile", title: "Profile", fields: [
-        ["fullName", "Full name"], ["age", "Age"], ["heightCm", "Height (cm)"], ["weightKg", "Weight (kg)"], ["sex", "Sex"], ["location", "Location"]
+      { key: "profile", title: "👤 Profile", fields: [
+        ["fullName",  "Full name",      { type:"text",   placeholder:"e.g. Priya Sharma",          hint:"Your full name as the coach should address you" }],
+        ["age",       "Age",            { type:"number", placeholder:"e.g. 28",                    hint:"In years" }],
+        ["heightCm",  "Height",         { type:"number", placeholder:"e.g. 165",                   hint:"In centimetres (cm)" }],
+        ["weightKg",  "Current weight", { type:"number", placeholder:"e.g. 72",                    hint:"In kilograms (kg) — measure fasted, first thing in the morning" }],
+        ["sex",       "Biological sex", { type:"select", options:["Male","Female","Other / Prefer not to say"] }],
+        ["location",  "Location",       { type:"text",   placeholder:"e.g. Mumbai, India",         hint:"City and country — helps with food options and climate context" }]
       ]},
-      { key: "bodyComposition", title: "Body Composition", fields: [
-        ["bodyFat", "Body fat %"], ["targetBodyFat", "Target body fat %"], ["goalType", "Goal type"]
+      { key: "bodyComposition", title: "📊 Body Composition", fields: [
+        ["bodyFat",       "Current body fat %", { type:"number", placeholder:"e.g. 22", hint:"% — leave blank if unsure, coach can estimate from photos or measurements" }],
+        ["targetBodyFat", "Target body fat %",  { type:"number", placeholder:"e.g. 15", hint:"% — your goal; lean = 10–15%, athletic = 15–20%, healthy = 20–25%" }],
+        ["goalType",      "Primary goal",       { type:"select", options:["Lose fat","Build muscle","Body recomposition (lose fat + gain muscle)","Improve overall fitness","Maintain current physique","Sports performance"] }]
       ]},
-      { key: "training", title: "Training", fields: [
-        ["daysPerWeek", "Days / week"], ["sessionDuration", "Session duration"], ["trainingTime", "Training time"], ["gymAccess", "Gym access"], ["cardioPreference", "Cardio preference"]
+      { key: "training", title: "🏋️ Training", fields: [
+        ["daysPerWeek",      "Training days / week", { type:"select", options:["2 days","3 days","4 days","5 days","6 days"] }],
+        ["sessionDuration",  "Session length",       { type:"select", options:["30 minutes","45 minutes","60 minutes","75 minutes","90 minutes","2 hours"] }],
+        ["trainingTime",     "Preferred time",       { type:"select", options:["Early morning (5–7 AM)","Morning (7–10 AM)","Midday (10 AM–1 PM)","Afternoon (1–4 PM)","Evening (4–7 PM)","Night (7–10 PM)"] }],
+        ["gymAccess",        "Gym access",           { type:"select", options:["Full commercial gym","Home gym (with weights)","Bodyweight / resistance bands only","Gym + home combined","Outdoor / park only"] }],
+        ["cardioPreference", "Cardio preference",    { type:"select", options:["None — I prefer lifting only","Walking","Running / jogging","Cycling","Swimming","HIIT","Mixed cardio (variety)"] }]
       ]},
-      { key: "injuriesMedical", title: "Injuries & Medical", fields: [
-        ["injuries", "Injuries"], ["rehabConstraints", "Rehab constraints"], ["medications", "Medications"], ["supplements", "Supplements"]
+      { key: "injuriesMedical", title: "🩺 Injuries & Medical", fields: [
+        ["injuries",         "Current injuries",     { type:"textarea", placeholder:"e.g. Lower back tightness, right knee pain\nOr type None if none", hint:"List any pain, old injuries or surgeries — be specific about location and severity" }],
+        ["rehabConstraints", "Movement restrictions",{ type:"textarea", placeholder:"e.g. Avoid heavy deadlifts, no overhead pressing\nOr type None", hint:"Exercises or movement patterns to avoid entirely" }],
+        ["medications",      "Medications",          { type:"text",     placeholder:"e.g. Metformin, thyroid meds — or None",                           hint:"Medications that could affect training, metabolism or diet" }],
+        ["supplements",      "Current supplements",  { type:"text",     placeholder:"e.g. Whey protein, creatine, vitamin D — or None",                 hint:"What you already take so the coach won't duplicate" }]
       ]},
-      { key: "diet", title: "Diet", fields: [
-        ["dietStyle", "Diet style"], ["cuisineStyle", "Cuisine style"], ["mealsPerDay", "Meals / day"], ["allergies", "Allergies"], ["preferences", "Preferences"]
+      { key: "diet", title: "🥗 Diet", fields: [
+        ["dietStyle",   "Diet style",      { type:"select",   options:["No restrictions","Vegetarian","Vegan","Eggetarian","Keto / low carb","Intermittent fasting","High protein focus","Jain","Other (add details in notes)"] }],
+        ["cuisineStyle","Cuisine style",   { type:"text",     placeholder:"e.g. South Indian, North Indian, Continental", hint:"Your everyday cooking style — helps build realistic meal options you'll actually eat" }],
+        ["mealsPerDay", "Meals per day",   { type:"select",   options:["2 meals","3 meals","4 meals","5 meals","6 meals"] }],
+        ["allergies",   "Food allergies",  { type:"text",     placeholder:"e.g. Lactose intolerant, nut allergy — or None", hint:"Foods that cause reactions, discomfort, or that you must completely avoid" }],
+        ["preferences", "Food preferences",{ type:"textarea", placeholder:"e.g. Prefer home-cooked food, dislike fish, love eggs and paneer, hate broccoli", hint:"Likes, dislikes, foods you absolutely will not eat — the more detail the better" }]
       ]},
-      { key: "lifestyle", title: "Lifestyle", fields: [
-        ["sleepHours", "Sleep hours"], ["activityLevel", "Activity level"], ["workPattern", "Work pattern"]
+      { key: "lifestyle", title: "🌙 Lifestyle", fields: [
+        ["sleepHours",    "Avg sleep per night", { type:"select", options:["Less than 5 hours","5–6 hours","6–7 hours","7–8 hours","More than 8 hours"] }],
+        ["activityLevel", "Daily activity",      { type:"select", options:["Sedentary — desk job, mostly sitting all day","Lightly active — short walks, some standing","Moderately active — active job or regular daily walks","Very active — physical job or intense daily exercise"] }],
+        ["workPattern",   "Work pattern",        { type:"select", options:["9–5 office job","Work from home","Shift work (rotating hours)","Freelance / flexible hours","Manual / physical labour","Student","Other"] }]
       ]},
-      { key: "notes", title: "Notes", fields: [
-        ["coachNotes", "Notes"]
+      { key: "notes", title: "📝 Notes for Coach", fields: [
+        ["coachNotes", "Anything else?", { type:"textarea", placeholder:"e.g. I travel monthly, struggle with weekends, high stress job, tried dieting before but always bounce back...", hint:"Goals, concerns, past experience, lifestyle context — the more detail the better for your plan" }]
       ]}
     ];
 
@@ -1607,36 +1628,58 @@
           indicator.style.color = "var(--gold)";
         }
       }
-      // Auto-save on every keystroke
-      formEl.querySelectorAll("input, textarea").forEach(field => {
+      // Auto-save on every keystroke and select change
+      formEl.querySelectorAll("input, textarea, select").forEach(field => {
         field.addEventListener("input", () => saveIntakeDraft(formEl, clientId));
+        field.addEventListener("change", () => saveIntakeDraft(formEl, clientId));
       });
     }
 
+    function renderIntakeField(sectionKey, field, label, meta, savedValue){
+      const name = sectionKey + "." + field;
+      const val = escapeHtml(savedValue || "");
+      const hint = meta?.hint ? `<div style="font-size:11px;color:var(--text-3);margin-top:5px;line-height:1.5;font-style:italic">${escapeHtml(meta.hint)}</div>` : "";
+      const ph = meta?.placeholder ? escapeAttr(meta.placeholder) : "";
+      if(meta?.type === "select"){
+        const opts = (meta.options || []).map(o =>
+          `<option value="${escapeAttr(o)}" ${savedValue === o ? "selected" : ""}>${escapeHtml(o)}</option>`
+        ).join("");
+        return `<select name="${name}"><option value="">— Select —</option>${opts}</select>${hint}`;
+      }
+      if(meta?.type === "textarea"){
+        return `<textarea name="${name}" placeholder="${ph}" style="min-height:80px">${val}</textarea>${hint}`;
+      }
+      if(meta?.type === "number"){
+        return `<input type="number" name="${name}" value="${val}" placeholder="${ph}" step="any"/>${hint}`;
+      }
+      // default text
+      return `<input type="text" name="${name}" value="${val}" placeholder="${ph}"/>${hint}`;
+    }
+
     function renderIntakeForm(values = {}, submitLabel, onSubmit, clientId){
-      return `
+      return \`
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;min-height:18px">
           <span id="intake-draft-indicator" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-3)">Typing auto-saves a local draft — safe if connection drops.</span>
         </div>
-        <form class="grid" onsubmit="${onSubmit}" data-intake-clientid="${escapeAttr(clientId || '')}">
-          ${intakeSections.map(section => `
+        <form class="grid" onsubmit="\${onSubmit}" data-intake-clientid="\${escapeAttr(clientId || '')}">
+          \${intakeSections.map(section => \`
             <div class="card">
-              <h3>${section.title}</h3>
-              <div class="grid cols-2" style="margin-top:12px">
-                ${section.fields.map(([field, label]) => `
-                  <label style="${section.fields.length === 1 ? 'grid-column:1/-1' : ''}">
-                    <span>${label}</span>
-                    <input name="${section.key}.${field}" value="${escapeHtml(values?.[section.key]?.[field] || '')}"/>
+              <h3>\${section.title}</h3>
+              <div class="grid cols-2" style="margin-top:14px">
+                \${section.fields.map(([field, label, meta]) => \`
+                  <label style="\${(section.fields.length === 1 || meta?.type === 'textarea') ? 'grid-column:1/-1' : ''}">
+                    <span>\${label}</span>
+                    \${renderIntakeField(section.key, field, label, meta, values?.[section.key]?.[field] || '')}
                   </label>
-                `).join("")}
+                \`).join("")}
               </div>
             </div>
-          `).join("")}
+          \`).join("")}
           <div class="inline">
-            <button class="action-btn" type="submit">${submitLabel}</button>
+            <button class="action-btn" type="submit">\${submitLabel}</button>
           </div>
         </form>
-      `;
+      \`;
     }
 
     function escapeHtml(value){
