@@ -185,21 +185,27 @@
       return true;
     }
 
-    async function bootstrap(){
-      try{
-        const res = await api("/api/me", { method: "GET", headers: {} });
-        state.me = res.user;
-        state.needsAdminBootstrap = false;
-      }catch{
-        state.me = null;
-        try{
-          const bootstrap = await api("/api/bootstrap-admin-check", { method: "GET", headers: {} });
-          state.needsAdminBootstrap = !!bootstrap.needsAdminBootstrap;
-        }catch{}
-      }
-      render();
-      await bootstrapForRoute();
+  async function bootstrap(){
+  try{
+    const res = await api("/api/me", { method: "GET", headers: {} });
+    state.me = res.user;
+    if(!state.me){
+      const bootstrap = await api("/api/bootstrap-admin-check", { method: "GET", headers: {} });
+      state.needsAdminBootstrap = !!bootstrap.needsAdminBootstrap;
+    } else {
+      state.needsAdminBootstrap = false;
     }
+  }catch{
+    state.me = null;
+    try{
+      const bootstrap = await api("/api/bootstrap-admin-check", { method: "GET", headers: {} });
+      state.needsAdminBootstrap = !!bootstrap.needsAdminBootstrap;
+    }catch{}
+  }
+  render();
+  await bootstrapForRoute();
+}
+
 
     async function bootstrapForRoute(){
       const path = state.route;
