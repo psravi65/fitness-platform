@@ -59,6 +59,9 @@
     .ghost-btn{background:transparent;border:1px solid var(--line);color:var(--text);font-weight:700}
     .danger{background:linear-gradient(90deg,#ff6b6b,#ff9a7d);color:#190707}
     .success{color:var(--lime)}
+    .notice{padding:12px 14px;border-radius:14px;border:1px solid var(--line);background:#0c1628}
+    .notice.success{background:rgba(145,219,93,.08);border-color:rgba(145,219,93,.28)}
+    .notice.warning{background:rgba(255,209,102,.08);border-color:rgba(255,209,102,.28);color:#ffe5a5}
     .error{color:var(--red)}
     .table{width:100%;border-collapse:collapse}
     .table th,.table td{padding:12px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
@@ -185,27 +188,26 @@
       return true;
     }
 
-  async function bootstrap(){
-  try{
-    const res = await api("/api/me", { method: "GET", headers: {} });
-    state.me = res.user;
-    if(!state.me){
-      const bootstrap = await api("/api/bootstrap-admin-check", { method: "GET", headers: {} });
-      state.needsAdminBootstrap = !!bootstrap.needsAdminBootstrap;
-    } else {
-      state.needsAdminBootstrap = false;
+    async function bootstrap(){
+      try{
+        const res = await api("/api/me", { method: "GET", headers: {} });
+        state.me = res.user;
+        if(!state.me){
+          const bootstrap = await api("/api/bootstrap-admin-check", { method: "GET", headers: {} });
+          state.needsAdminBootstrap = !!bootstrap.needsAdminBootstrap;
+        } else {
+          state.needsAdminBootstrap = false;
+        }
+      }catch{
+        state.me = null;
+        try{
+          const bootstrap = await api("/api/bootstrap-admin-check", { method: "GET", headers: {} });
+          state.needsAdminBootstrap = !!bootstrap.needsAdminBootstrap;
+        }catch{}
+      }
+      render();
+      await bootstrapForRoute();
     }
-  }catch{
-    state.me = null;
-    try{
-      const bootstrap = await api("/api/bootstrap-admin-check", { method: "GET", headers: {} });
-      state.needsAdminBootstrap = !!bootstrap.needsAdminBootstrap;
-    }catch{}
-  }
-  render();
-  await bootstrapForRoute();
-}
-
 
     async function bootstrapForRoute(){
       const path = state.route;
@@ -542,8 +544,17 @@
     function renderPlan(plan){
       if(!plan) return '<div class="empty">No plan available yet.</div>';
       const data = plan.effectivePlan || plan;
+      const meta = data.generationMeta || {};
+      const metaTone = meta.source === "gemini" ? "success" : "warning";
       return el`
         <div class="grid">
+          ${meta.reason ? `
+            <div class="notice ${metaTone}">
+              <strong>${meta.source === "gemini" ? "Gemini" : "Fallback"}:</strong> ${escapeHtml(meta.reason)}
+              ${meta.model ? `<div class="subtle" style="margin-top:6px">Model: ${escapeHtml(meta.model)}</div>` : ""}
+              ${meta.details ? `<div class="subtle" style="margin-top:6px;white-space:pre-wrap">${escapeHtml(meta.details)}</div>` : ""}
+            </div>
+          ` : ""}
           <div class="card"><div class="subtle">Summary</div><div class="plan-list"><div>${data.profileSummary || ""}</div></div></div>
           <div class="grid cols-3">
             <div class="card"><div class="subtle">Calories</div><div class="stat">${data.calorieTarget || "-"}</div></div>
