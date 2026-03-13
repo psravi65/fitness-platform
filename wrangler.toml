@@ -10,10 +10,9 @@ not_found_handling = "single-page-application"
 [[d1_databases]]
 binding = "DB"
 database_name = "fitness-platform"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "6769529b-ebf8-4014-9614-20f4d978f53c"
 
 [vars]
 APP_NAME = "Fitness Platform"
 GEMINI_MODEL = "gemini-2.0-flash"
 COOKIE_SECURE = "true"
-
