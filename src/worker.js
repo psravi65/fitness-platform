@@ -111,12 +111,21 @@ async function handleApi(request, env, ctx, url) {
     assertRole(session, "admin");
     const rows = await env.DB.prepare(`
       SELECT clients.id, clients.full_name, clients.status, users.username,
-        COALESCE((SELECT status FROM plans WHERE client_id = clients.id ORDER BY updated_at DESC LIMIT 1), 'none') AS plan_status
+        COALESCE((SELECT status FROM plans WHERE client_id = clients.id ORDER BY updated_at DESC LIMIT 1), 'none') AS plan_status,
+        (SELECT log_date FROM daily_logs WHERE client_id = clients.id ORDER BY log_date DESC LIMIT 1) AS last_log_date,
+        (SELECT updated_at FROM checkins WHERE client_id = clients.id ORDER BY updated_at DESC LIMIT 1) AS last_checkin_at,
+        (SELECT updated_at FROM weekly_reviews WHERE client_id = clients.id ORDER BY updated_at DESC LIMIT 1) AS last_weekly_review_at,
+        (SELECT notes FROM daily_logs WHERE client_id = clients.id AND TRIM(COALESCE(notes, '')) <> '' ORDER BY updated_at DESC LIMIT 1) AS latest_daily_note,
+        (SELECT notes FROM checkins WHERE client_id = clients.id AND TRIM(COALESCE(notes, '')) <> '' ORDER BY updated_at DESC LIMIT 1) AS latest_checkin_note
       FROM clients
       LEFT JOIN users ON users.client_id = clients.id
       ORDER BY clients.created_at DESC
     `).all();
-    return json({ clients: rows.results || [] });
+    const clients = (rows.results || []).map((client) => ({
+      ...client,
+      reviewFlags: buildReviewFlags(client)
+    }));
+    return json({ clients });
   }
 
   if (url.pathname === "/api/admin/clients" && method === "POST") {
@@ -171,6 +180,16 @@ async function handleApi(request, env, ctx, url) {
     return json({ ok: true });
   }
 
+  const intakeEditMatch = url.pathname.match(/^\/api\/admin\/clients\/([^/]+)\/intake-edit$/);
+  if (intakeEditMatch && method === "POST") {
+    assertRole(session, "admin");
+    const body = await readJson(request);
+    await env.DB.prepare(`UPDATE clients SET status = ? WHERE id = ?`)
+      .bind(body.editable ? "intake_open" : "active", intakeEditMatch[1])
+      .run();
+    return json({ ok: true });
+  }
+
   const generatePlanMatch = url.pathname.match(/^\/api\/admin\/clients\/([^/]+)\/generate-plan$/);
   if (generatePlanMatch && method === "POST") {
     assertRole(session, "admin");
@@ -216,8 +235,15 @@ async function handleApi(request, env, ctx, url) {
 
   if (url.pathname === "/api/app/intake" && method === "POST") {
     assertRole(session, "client");
+    const client = await env.DB.prepare(`SELECT * FROM clients WHERE id = ?`).bind(session.user.client_id).first();
+    const existing = await getLatestIntake(env, session.user.client_id);
+    const canEdit = client?.status === "intake_open" || !existing?.completed_at;
+    if (!canEdit) return json({ error: "Intake is locked. Ask your coach to enable edits." }, 403);
     const body = await readJson(request);
     await upsertIntake(env, session.user.client_id, body.answers || {}, body.complete);
+    if (body.complete) {
+      await env.DB.prepare(`UPDATE clients SET status = 'active' WHERE id = ?`).bind(session.user.client_id).run();
+    }
     return json({ ok: true });
   }
 
@@ -318,6 +344,7 @@ async function getClientBootstrap(env, clientId) {
     client,
     intake,
     plan,
+    canEditIntake: client?.status === "intake_open" || !intake?.completed_at,
     dailyLog: parseStoredJsonRow(dailyLog),
     weeklyReview: parseStoredJsonRow(weeklyReview),
     checkins: await selectJsonRows(env, `SELECT * FROM checkins WHERE client_id = ? ORDER BY checkin_date DESC LIMIT 10`, [clientId])
@@ -567,7 +594,7 @@ async function generatePlanFromIntake(env, intake, progressContext = {}) {
     JSON.stringify(buildProgressSummary(progressContext))
   ].join("\n");
 
-  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL || "gemini-2.0-flash"}:generateContent?key=${env.GEMINI_API_KEY}`;
+  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL || "gemini-2.5-flash"}:generateContent?key=${env.GEMINI_API_KEY}`;
   const res = await fetch(apiUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -584,7 +611,7 @@ async function generatePlanFromIntake(env, intake, progressContext = {}) {
       source: "fallback",
       reason: `Gemini request failed with HTTP ${res.status}.`,
       details: trimForStorage(await res.text(), 500),
-      model: env.GEMINI_MODEL || "gemini-2.0-flash",
+      model: env.GEMINI_MODEL || "gemini-2.5-flash",
       generatedAt: nowIso(),
       usedProgressData: true
     });
@@ -598,7 +625,7 @@ async function generatePlanFromIntake(env, intake, progressContext = {}) {
       source: "fallback",
       reason: "Gemini returned invalid JSON.",
       details: trimForStorage(text, 500),
-      model: env.GEMINI_MODEL || "gemini-2.0-flash",
+      model: env.GEMINI_MODEL || "gemini-2.5-flash",
       generatedAt: nowIso(),
       usedProgressData: true
     });
@@ -606,7 +633,7 @@ async function generatePlanFromIntake(env, intake, progressContext = {}) {
   return normalizePlan(parsed, intake, {
     source: "gemini",
     reason: "Gemini plan generated successfully.",
-    model: env.GEMINI_MODEL || "gemini-2.0-flash",
+    model: env.GEMINI_MODEL || "gemini-2.5-flash",
     generatedAt: nowIso(),
     usedProgressData: true
   });
@@ -819,6 +846,24 @@ function safeJson(value, fallback) {
   } catch {
     return fallback;
   }
+}
+
+function buildReviewFlags(client) {
+  const flags = [];
+  if (client.status === "intake_open") flags.push("intake open");
+  if (client.plan_status === "draft") flags.push("needs publish");
+  if (client.latest_daily_note) flags.push("new note");
+  if (client.last_checkin_at) flags.push("check-in");
+  if (client.last_weekly_review_at) flags.push("weekly review");
+  if (!client.last_log_date || daysSinceDate(client.last_log_date) >= 3) flags.push("inactive");
+  return flags;
+}
+
+function daysSinceDate(value) {
+  if (!value) return Infinity;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return Infinity;
+  return Math.floor((Date.now() - date.getTime()) / 86400000);
 }
 
 function trimForStorage(value, limit = 500) {
