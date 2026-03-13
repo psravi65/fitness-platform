@@ -88,6 +88,26 @@
     .cta-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
     .segmented{display:grid;gap:10px}
     .mobile-only{display:none}
+    .client-app{max-width:480px;margin:0 auto;min-height:100vh;background:#0d1117;color:#c8d0e8;padding-bottom:78px}
+    .client-header{position:sticky;top:0;z-index:40;background:#0d1117;border-bottom:1px solid #1e2a3a;padding:12px 16px}
+    .client-header-row{display:flex;justify-content:space-between;align-items:center;gap:12px}
+    .client-kicker{font-size:9px;color:var(--orange);letter-spacing:2px;text-transform:uppercase;font-family:ui-monospace,monospace}
+    .client-title{font-size:22px;font-weight:800;color:#f0f4ff}
+    .client-subtitle{font-size:10px;color:#6b7a99;font-family:ui-monospace,monospace}
+    .client-chip{display:inline-flex;align-items:center;gap:6px;margin-top:4px;background:#111827;border:1px solid rgba(55,214,199,.2);border-radius:999px;padding:4px 10px;font-size:10px;color:var(--teal);font-family:ui-monospace,monospace}
+    .client-main{padding:12px}
+    .client-panel{background:#111827;border:1px solid #1e2a3a;border-radius:14px;padding:14px}
+    .client-stat-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+    .client-stat-card{background:#111827;border-radius:10px;padding:10px 8px;text-align:center;border:1px solid #1e2a3a}
+    .client-stat-value{font-size:16px;font-weight:800;font-family:ui-monospace,monospace}
+    .client-stat-label{font-size:8px;color:#6b7a99;text-transform:uppercase;letter-spacing:.08em;margin-top:2px}
+    .client-list{display:grid;gap:8px}
+    .client-list-item{background:#0d1117;border:1px solid #1e2a3a;border-radius:12px;padding:10px 12px}
+    .bottom-tabs{position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:480px;background:#080c12;border-top:1px solid #1e2a3a;display:flex;z-index:50}
+    .bottom-tab{flex:1;border:none;background:transparent;padding:8px 0;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px;border-top:2px solid transparent;color:#3a4560}
+    .bottom-tab.active{border-top-color:var(--orange);color:var(--orange)}
+    .bottom-tab-icon{font-size:15px}
+    .bottom-tab-label{font-size:8px;text-transform:uppercase;letter-spacing:.07em;font-family:ui-monospace,monospace}
     @media (max-width: 900px){
       .layout,.split,.grid.cols-2,.grid.cols-3{grid-template-columns:1fr}
       .sidebar{position:static}
@@ -921,6 +941,15 @@
       };
     }
 
+    function clientTabIcon(path){
+      return {
+        "/app": "🏠",
+        "/app/intake": "📝",
+        "/app/plan": "📋",
+        "/app/log": "📊"
+      }[path] || "•";
+    }
+
     function render(){
       const root = document.getElementById("app");
       const path = state.route;
@@ -989,6 +1018,7 @@
       }
 
       const isAdmin = state.me?.role === "admin";
+      const app = state.appData || {};
       const nav = isAdmin ? [
         ["/admin", "Dashboard"],
         ...(state.adminClientDetail ? [[state.route, "Client Detail"]] : [])
@@ -1133,51 +1163,60 @@
           `;
         }
       } else {
-        const app = state.appData || {};
         const today = new Date().toISOString().slice(0,10);
         const dailyLog = app.dailyLog || {};
         const review = app.weeklyReview?.review_json || {};
         if(path === "/app"){
           content = `
-            <div class="panel">
-              <div class="client-shell">
-                <div class="hero">
-                  <div class="badge">Client Dashboard</div>
-                  <h2 style="margin-top:10px">${escapeHtml(app.client?.full_name || "Client")}</h2>
-                  <p class="subtle">${app.plan ? "Coach published your current plan. Follow it and log progress daily." : "Your coach will publish your plan after intake review."}</p>
+            <div class="client-shell">
+              ${flash}
+              <div class="client-stat-grid">
+                <div class="client-stat-card" style="border-color:${app.plan ? '#22c55e33' : '#1e2a3a'}">
+                  <div style="font-size:18px">${app.plan ? "✅" : "⏳"}</div>
+                  <div class="client-stat-value" style="color:${app.plan ? '#22c55e' : '#FF6B2B'}">${app.plan ? "Ready" : "Pending"}</div>
+                  <div class="client-stat-label">Plan</div>
                 </div>
-                ${flash}
-                <div class="cta-grid">
-                  <div class="card">
-                    <div class="subtle">Intake</div>
-                    <div class="stat">${app.canEditIntake ? "Open" : "Locked"}</div>
-                    <p class="subtle">${app.canEditIntake ? "Complete or update your intake." : "Coach needs to enable edits to change intake."}</p>
-                  </div>
-                  <div class="card">
-                    <div class="subtle">Plan</div>
-                    <div class="stat">${app.plan ? "Ready" : "Pending"}</div>
-                    <p class="subtle">${app.plan ? "Your coach has published your latest plan." : "Waiting for coach review and publishing."}</p>
-                  </div>
-                  <div class="card">
-                    <div class="subtle">Today's Log</div>
-                    <div class="stat">${dailyLog.log_date === today ? "Saved" : "Pending"}</div>
-                    <p class="subtle">Use the Log page to track meals, workout, hydration, and progress.</p>
-                  </div>
+                <div class="client-stat-card" style="border-color:${app.canEditIntake ? '#F59E0B33' : '#1e2a3a'}">
+                  <div style="font-size:18px">${app.canEditIntake ? "📝" : "🔒"}</div>
+                  <div class="client-stat-value" style="color:${app.canEditIntake ? '#F59E0B' : '#3B9EFF'}">${app.canEditIntake ? "Open" : "Locked"}</div>
+                  <div class="client-stat-label">Intake</div>
                 </div>
-                <div class="inline">
+                <div class="client-stat-card" style="border-color:${dailyLog.log_date === today ? '#22c55e33' : '#1e2a3a'}">
+                  <div style="font-size:18px">${dailyLog.log_date === today ? "📈" : "⌛"}</div>
+                  <div class="client-stat-value" style="color:${dailyLog.log_date === today ? '#22c55e' : '#A855F7'}">${dailyLog.log_date === today ? "Saved" : "Pending"}</div>
+                  <div class="client-stat-label">Today's Log</div>
+                </div>
+              </div>
+              <div class="client-panel" style="background:linear-gradient(135deg,${app.plan ? 'rgba(34,197,94,.14), rgba(59,158,255,.08)' : 'rgba(255,147,80,.16), rgba(168,85,247,.08)'})">
+                <div class="client-kicker">${app.plan ? "Coach Published Plan" : "Waiting For Coach Review"}</div>
+                <div style="font-size:26px;font-weight:800;color:#f0f4ff;margin-top:4px">${escapeHtml(app.client?.full_name || "Client")}</div>
+                <div class="subtle" style="margin-top:4px">${app.plan ? "Your current plan is live. Follow it and update your log every day." : "Complete your intake and keep your log updated so your coach can review faster."}</div>
+                <div class="inline" style="margin-top:12px">
                   <button class="action-btn" data-nav="/app/plan">Open Plan</button>
                   <button class="ghost-btn" data-nav="/app/log">Open Log</button>
-                  <button class="ghost-btn" data-nav="/app/intake">Open Intake</button>
+                </div>
+              </div>
+              <div class="client-panel">
+                <div class="client-kicker" style="color:#6b7a99">Today</div>
+                <div class="client-list" style="margin-top:10px">
+                  <div class="client-list-item">
+                    <strong style="color:#f0f4ff">Next step</strong>
+                    <div class="subtle" style="margin-top:4px">${app.plan ? "Choose your meals and log your workout for today." : (app.canEditIntake ? "Submit your intake so the coach can build your plan." : "Wait for your coach to publish the plan, then start logging.")}</div>
+                  </div>
+                  <div class="client-list-item">
+                    <strong style="color:#f0f4ff">Coach note</strong>
+                    <div class="subtle" style="margin-top:4px">${app.plan ? "Coach published your plan. Use the Plan tab for guidance and the Log tab for progress tracking." : "Your coach will review your intake and progress before publishing your plan."}</div>
+                  </div>
                 </div>
               </div>
             </div>
           `;
         } else if(path === "/app/plan"){
-          content = `<div class="panel"><h2>Published Plan</h2><p class="subtle">${app.client?.full_name || ""}</p>${flash}<div style="margin-top:18px">${renderPlan(app.plan, { showMeta: false, coachPublished: true })}</div></div>`;
+          content = `<div class="client-shell">${flash}<div class="client-panel"><div class="client-kicker">Coach Published Plan</div><h2 style="margin-top:8px">Your Plan</h2><p class="subtle">${app.client?.full_name || ""}</p><div style="margin-top:18px">${renderPlan(app.plan, { showMeta: false, coachPublished: true })}</div></div></div>`;
         } else if(path === "/app/intake"){
           content = app.canEditIntake
-            ? `<div class="panel"><h2>Intake Form</h2><p class="subtle">Complete this once so the coach can generate and publish your plan.</p>${flash}<div style="margin-top:18px">${renderIntakeForm(app.intake?.answers_json || {}, "Submit Intake", "return false;")}</div></div>`
-            : `<div class="panel"><h2>Intake Form</h2><div class="notice success">Your intake has been submitted. If you need to change it, ask your coach to enable editing.</div>${flash}<div style="margin-top:18px">${renderIntakeForm(app.intake?.answers_json || {}, "Submitted", "return false;")}</div></div>`;
+            ? `<div class="client-shell">${flash}<div class="client-panel"><div class="client-kicker">Intake</div><h2 style="margin-top:8px">Tell Your Coach About You</h2><p class="subtle">Submit this once. After that, your coach controls when it can be edited.</p><div style="margin-top:18px">${renderIntakeForm(app.intake?.answers_json || {}, "Submit Intake", "return false;")}</div></div></div>`
+            : `<div class="client-shell">${flash}<div class="client-panel"><div class="notice success">Your intake has been submitted. If you need to change it, ask your coach to enable editing.</div><div style="margin-top:18px">${renderIntakeForm(app.intake?.answers_json || {}, "Submitted", "return false;")}</div></div></div>`;
         } else if(path === "/app/log"){
           const breakfastSection = getPlanMealSection(app.plan, "Breakfast");
           const lunchSection = getPlanMealSection(app.plan, "Lunch");
@@ -1185,16 +1224,19 @@
           const selectedWorkout = dailyLog.workout_json?.session || "";
           const selectedWorkoutBlock = getWorkoutSession(app.plan, selectedWorkout);
           content = `
-            <div class="panel">
-              <h2>Daily Logging</h2>
-              <p class="subtle">Track meals, training, hydration, and check-ins from a simplified daily flow.</p>
+            <div class="client-shell">
               ${flash}
-              <div class="grid" style="margin-top:18px">
-                <div class="card">
-                  <h3>Daily Log</h3>
+              <div class="client-panel">
+                <div class="client-kicker">Daily Log</div>
+                <h2 style="margin-top:8px">Track Today</h2>
+                <p class="subtle">Meals, workout, hydration, and notes in one clean flow.</p>
+              </div>
+              <form class="grid" id="daily-log-form">
+                <div class="client-panel">
+                  <h3>Meals & Macros</h3>
                   <div class="subtle" id="autosave-status" style="margin-top:6px">${state.autoSaveStatus || "Changes auto-save while you type."}</div>
                   <div class="subtle" style="margin-top:6px">Breakfast, lunch, and dinner totals are auto-calculated from the meal option you select.</div>
-                  <form class="grid" id="daily-log-form" style="margin-top:12px">
+                  <div class="grid" style="margin-top:12px">
                     <label><span>Date</span><input name="logDate" value="${dailyLog.log_date || today}" required/></label>
                     <label><span>Breakfast</span>${renderMealSelect("breakfast", breakfastSection, dailyLog.meals_json?.breakfast || "")}</label>
                     <label><span>Lunch</span>${renderMealSelect("lunch", lunchSection, dailyLog.meals_json?.lunch || "")}</label>
@@ -1205,20 +1247,33 @@
                       <label><span>Protein</span><input name="protein" value="${dailyLog.macros_json?.protein || 0}" readonly/></label>
                       <label><span>Carbs</span><input name="carbs" value="${dailyLog.macros_json?.carbs || 0}" readonly/></label>
                       <label><span>Fat</span><input name="fat" value="${dailyLog.macros_json?.fat || 0}" readonly/></label>
+                    </div>
+                    <div class="grid cols-2">
                       <label><span>Hydration (L)</span><input name="hydration" value="${dailyLog.hydration || 0}"/></label>
                       <label><span>Steps</span><input name="steps" value="${dailyLog.steps || 0}"/></label>
                     </div>
+                  </div>
+                </div>
+                <div class="client-panel">
+                  <h3>Workout</h3>
+                  <div class="grid">
                     <label><span>Workout Session</span>${renderWorkoutSelect(app.plan, selectedWorkout)}</label>
                     <div id="workout-preview">${selectedWorkoutBlock ? `<div class="plan-list"><div>${selectedWorkoutBlock.exercises.map(ex => escapeHtml(ex)).join("<br/>")}</div></div>` : `<div class="empty">Select a workout to see today's activity list.</div>`}</div>
                     <label><span>Cardio</span><input name="cardio" value="${escapeHtml(dailyLog.cardio || "")}"/></label>
                     <label><span>Workout Notes</span><textarea name="workoutNotes">${escapeHtml(dailyLog.workout_json?.notes || "")}</textarea></label>
                     <label><input type="checkbox" name="workoutCompleted" ${dailyLog.workout_json?.completed ? "checked" : ""}/> Workout completed</label>
+                  </div>
+                </div>
+                <div class="client-panel">
+                  <h3>Notes</h3>
+                  <div class="grid">
                     <label><span>General notes</span><textarea name="notes">${escapeHtml(dailyLog.notes || "")}</textarea></label>
                     <button class="action-btn" type="submit">Save Daily Log</button>
-                  </form>
+                  </div>
                 </div>
-                <div class="grid cols-2">
-                  <div class="card">
+              </form>
+              <div class="grid cols-2">
+                  <div class="client-panel">
                     <h3>Check-in</h3>
                     <form class="grid" id="checkin-form" style="margin-top:12px">
                       <label><span>Date</span><input name="checkinDate" value="${today}" required/></label>
@@ -1232,7 +1287,7 @@
                       <button class="action-btn" type="submit">Save Check-in</button>
                     </form>
                   </div>
-                  <div class="card">
+                  <div class="client-panel">
                     <h3>Weekly Review</h3>
                     <form class="grid" id="review-form" style="margin-top:12px">
                       <label><span>Week key</span><input name="weekKey" value="${app.weeklyReview?.week_key || currentWeekKey()}"/></label>
@@ -1243,7 +1298,7 @@
                       <button class="action-btn" type="submit">Save Weekly Review</button>
                     </form>
                   </div>
-                  <div class="card">
+                  <div class="client-panel">
                     <h3>Account</h3>
                     <form class="grid" id="password-form" style="margin-top:12px">
                       <label><span>Current password</span><input type="password" name="currentPassword" required/></label>
@@ -1258,47 +1313,53 @@
         }
       }
 
-      root.innerHTML = `
+      root.innerHTML = isAdmin ? `
         <div class="app-shell">
           <div class="topbar">
             <div class="brand">
-              <div class="badge">${state.me?.role === "admin" ? "Admin" : "Client"} Workspace</div>
-              <h1>${state.me?.role === "admin" ? "Fitness Admin Console" : "Fitness Client App"}</h1>
+              <div class="badge">Admin Workspace</div>
+              <h1>Fitness Admin Console</h1>
               <p>${state.me?.username || ""}${state.me?.mustChangePassword ? " • password change required" : ""}</p>
             </div>
             <div class="top-actions">
               <button class="ghost-btn" id="logout-btn">Logout</button>
             </div>
           </div>
-          <div class="layout" style="${isAdmin ? "" : "grid-template-columns:1fr"}">
-            ${isAdmin ? `
-              <aside class="sidebar">
-                <h3>Navigation</h3>
-                <nav>
-                  ${nav.map(([href, label]) => `<button class="nav-btn ${path === href ? "active" : ""}" data-nav="${href}">${label}</button>`).join("")}
-                </nav>
-              </aside>
-            ` : ""}
-            <main>
-              ${!isAdmin ? `
-                <div class="card" style="margin-bottom:16px">
-                  <label><span>Navigate</span>
-                    <select id="client-nav-select">
-                      ${nav.map(([href, label]) => `<option value="${href}" ${path === href ? "selected" : ""}>${label}</option>`).join("")}
-                    </select>
-                  </label>
-                </div>
-              ` : ""}
-              ${content}
-            </main>
+          <div class="layout">
+            <aside class="sidebar">
+              <h3>Navigation</h3>
+              <nav>
+                ${nav.map(([href, label]) => `<button class="nav-btn ${path === href ? "active" : ""}" data-nav="${href}">${label}</button>`).join("")}
+              </nav>
+            </aside>
+            <main>${content}</main>
+          </div>
+        </div>
+      ` : `
+        <div class="client-app">
+          <div class="client-header">
+            <div class="client-header-row">
+              <div>
+                <div class="client-kicker">${state.me?.username || "client"}</div>
+                <div class="client-title">FitnessLog</div>
+              </div>
+              <div style="text-align:right">
+                <div class="client-subtitle">${new Date().toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"short"})}</div>
+                <div class="client-chip"><span style="width:6px;height:6px;border-radius:50%;background:${app?.plan ? '#22c55e' : '#FF6B2B'};display:inline-block"></span>${app?.plan ? 'Plan Live' : 'Plan Pending'}</div>
+                <div style="margin-top:6px"><button class="ghost-btn" id="logout-btn" style="padding:6px 10px;font-size:11px">Logout</button></div>
+              </div>
+            </div>
+          </div>
+          <div class="client-main">${content}</div>
+          <div class="bottom-tabs">
+            ${nav.map(([href, label]) => `<button class="bottom-tab ${path === href ? "active" : ""}" data-nav="${href}"><span class="bottom-tab-icon">${clientTabIcon(href)}</span><span class="bottom-tab-label">${label}</span></button>`).join("")}
           </div>
         </div>
       `;
 
       document.querySelectorAll("[data-nav]").forEach(btn => btn.onclick = () => setRoute(btn.dataset.nav));
-      const clientNavSelect = document.getElementById("client-nav-select");
-      if(clientNavSelect) clientNavSelect.onchange = () => setRoute(clientNavSelect.value);
-      document.getElementById("logout-btn").onclick = logout;
+      const logoutBtn = document.getElementById("logout-btn");
+      if(logoutBtn) logoutBtn.onclick = logout;
 
       if(isAdmin && path === "/admin"){
         document.getElementById("create-client-form").onsubmit = createClient;
