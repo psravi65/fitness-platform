@@ -34,25 +34,26 @@ async function handleApi(request, env, ctx, url) {
   }
 
   if (url.pathname === "/api/bootstrap-admin-check" && method === "GET") {
-    const count = await env.DB.prepare(`SELECT COUNT(*) AS count FROM users WHERE role = 'admin'`).first();
+    const count = await env.DB.prepare(`SELECT COUNT(*) AS count FROM users WHERE role IN ('admin','superadmin')`).first();
     return json({ needsAdminBootstrap: Number(count?.count || 0) === 0 });
   }
 
   if (url.pathname === "/api/bootstrap-admin" && method === "POST") {
-    const count = await env.DB.prepare(`SELECT COUNT(*) AS count FROM users WHERE role = 'admin'`).first();
+    const count = await env.DB.prepare(`SELECT COUNT(*) AS count FROM users WHERE role IN ('admin','superadmin')`).first();
     if (Number(count?.count || 0) > 0) {
       return json({ error: "Admin already exists." }, 409);
     }
     const body = await readJson(request);
     const username = clean(body.username);
     const password = String(body.password || "");
+    const isSuperAdmin = body.superadmin === true;
     if (!username || password.length < 8) {
       return json({ error: "Username and password of at least 8 characters are required." }, 400);
     }
     await env.DB.prepare(`
       INSERT INTO users (id, username, password_hash, role, must_change_password)
-      VALUES (?, ?, ?, 'admin', 0)
-    `).bind(crypto.randomUUID(), username, await hashPassword(password)).run();
+      VALUES (?, ?, ?, ?, 0)
+    `).bind(crypto.randomUUID(), username, await hashPassword(password), isSuperAdmin ? "superadmin" : "admin").run();
     return json({ ok: true });
   }
 
@@ -107,18 +108,115 @@ async function handleApi(request, env, ctx, url) {
     return json({ ok: true });
   }
 
+
+  // ═══════════════════════════════════════════════════════════
+  //  SUPERADMIN ROUTES — app owner only
+  // ═══════════════════════════════════════════════════════════
+
+  if (url.pathname === "/api/superadmin/gyms" && method === "GET") {
+    assertRole(session, "superadmin");
+    const gyms = await env.DB.prepare(`
+      SELECT gyms.*,
+        COUNT(DISTINCT clients.id) AS client_count,
+        COUNT(DISTINCT CASE WHEN plans.status = 'published' THEN plans.id END) AS active_plans,
+        MAX(daily_logs.updated_at) AS last_activity
+      FROM gyms
+      LEFT JOIN clients ON clients.gym_id = gyms.id
+      LEFT JOIN plans ON plans.client_id = clients.id
+      LEFT JOIN daily_logs ON daily_logs.client_id = clients.id
+      GROUP BY gyms.id
+      ORDER BY gyms.created_at DESC
+    `).all();
+    const totalClients = await env.DB.prepare(`SELECT COUNT(*) AS count FROM clients`).first();
+    const totalPlans = await env.DB.prepare(`SELECT COUNT(*) AS count FROM plans WHERE status = 'published'`).first();
+    return json({
+      gyms: gyms.results || [],
+      stats: {
+        totalGyms: (gyms.results || []).length,
+        totalClients: Number(totalClients?.count || 0),
+        totalActivePlans: Number(totalPlans?.count || 0)
+      }
+    });
+  }
+
+  if (url.pathname === "/api/superadmin/gyms" && method === "POST") {
+    assertRole(session, "superadmin");
+    const body = await readJson(request);
+    const gymName = clean(body.gymName);
+    const ownerName = clean(body.ownerName);
+    const email = clean(body.email);
+    const phone = clean(body.phone || "");
+    const city = clean(body.city || "");
+    const adminUsername = clean(body.adminUsername);
+    if (!gymName || !ownerName || !adminUsername) {
+      return json({ error: "Gym name, owner name and admin username are required." }, 400);
+    }
+    const existing = await env.DB.prepare(`SELECT id FROM users WHERE username = ?`).bind(adminUsername).first();
+    if (existing) return json({ error: "Username already taken." }, 409);
+
+    const gymId = crypto.randomUUID();
+    const adminId = crypto.randomUUID();
+    const tempPassword = generateTempPassword();
+    const hash = await hashPassword(tempPassword);
+
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO gyms (id, name, owner_name, email, phone, city, status) VALUES (?, ?, ?, ?, ?, ?, 'active')`).bind(gymId, gymName, ownerName, email, phone, city),
+      env.DB.prepare(`INSERT INTO users (id, username, password_hash, role, gym_id, must_change_password) VALUES (?, ?, ?, 'admin', ?, 1)`).bind(adminId, adminUsername, hash, gymId),
+    ]);
+    return json({ ok: true, gymId, temporaryPassword: tempPassword });
+  }
+
+  const superadminGymMatch = url.pathname.match(/^\/api\/superadmin\/gyms\/([^/]+)$/);
+  if (superadminGymMatch && method === "GET") {
+    assertRole(session, "superadmin");
+    const gymId = superadminGymMatch[1];
+    const gym = await env.DB.prepare(`SELECT * FROM gyms WHERE id = ?`).bind(gymId).first();
+    if (!gym) return json({ error: "Gym not found." }, 404);
+    const clients = await env.DB.prepare(`
+      SELECT clients.id, clients.full_name, clients.status, users.username,
+        COALESCE((SELECT status FROM plans WHERE client_id = clients.id ORDER BY updated_at DESC LIMIT 1), 'none') AS plan_status,
+        (SELECT log_date FROM daily_logs WHERE client_id = clients.id ORDER BY log_date DESC LIMIT 1) AS last_log_date
+      FROM clients LEFT JOIN users ON users.client_id = clients.id
+      WHERE clients.gym_id = ? ORDER BY clients.created_at DESC
+    `).bind(gymId).all();
+    const admin = await env.DB.prepare(`SELECT id, username FROM users WHERE gym_id = ? AND role = 'admin' LIMIT 1`).bind(gymId).first();
+    return json({ gym, clients: clients.results || [], admin });
+  }
+
+  if (superadminGymMatch && method === "PATCH") {
+    assertRole(session, "superadmin");
+    const body = await readJson(request);
+    const gymId = superadminGymMatch[1];
+    if (body.status) {
+      await env.DB.prepare(`UPDATE gyms SET status = ? WHERE id = ?`).bind(body.status, gymId).run();
+    }
+    return json({ ok: true });
+  }
+
+  if (url.pathname === "/api/superadmin/me" && method === "GET") {
+    assertRole(session, "superadmin");
+    const stats = await env.DB.prepare(`
+      SELECT
+        (SELECT COUNT(*) FROM gyms WHERE status = 'active') AS active_gyms,
+        (SELECT COUNT(*) FROM clients) AS total_clients,
+        (SELECT COUNT(*) FROM plans WHERE status = 'published') AS active_plans,
+        (SELECT COUNT(*) FROM daily_logs WHERE date(updated_at) = date('now')) AS logs_today
+    `).first();
+    return json({ stats });
+  }
+
   if (url.pathname === "/api/admin/clients/all-for-household" && method === "GET") {
     assertRole(session, "admin");
-    const rows = await env.DB.prepare(`
-      SELECT clients.id, clients.full_name, clients.household_id, users.username
-      FROM clients LEFT JOIN users ON users.client_id = clients.id
-      ORDER BY clients.full_name ASC
-    `).all();
+    const gymId = getGymId(session);
+    const rows = gymId
+      ? await env.DB.prepare(`SELECT clients.id, clients.full_name, clients.household_id, users.username FROM clients LEFT JOIN users ON users.client_id = clients.id WHERE clients.gym_id = ? ORDER BY clients.full_name ASC`).bind(gymId).all()
+      : await env.DB.prepare(`SELECT clients.id, clients.full_name, clients.household_id, users.username FROM clients LEFT JOIN users ON users.client_id = clients.id ORDER BY clients.full_name ASC`).all();
     return json({ clients: rows.results || [] });
   }
 
   if (url.pathname === "/api/admin/clients" && method === "GET") {
     assertRole(session, "admin");
+    const gymId = getGymId(session);
     const rows = await env.DB.prepare(`
       SELECT clients.id, clients.full_name, clients.status, users.username,
         COALESCE((SELECT status FROM plans WHERE client_id = clients.id ORDER BY updated_at DESC LIMIT 1), 'none') AS plan_status,
@@ -129,8 +227,9 @@ async function handleApi(request, env, ctx, url) {
         (SELECT notes FROM checkins WHERE client_id = clients.id AND TRIM(COALESCE(notes, '')) <> '' ORDER BY updated_at DESC LIMIT 1) AS latest_checkin_note
       FROM clients
       LEFT JOIN users ON users.client_id = clients.id
+      ${gymId ? "WHERE clients.gym_id = ?" : ""}
       ORDER BY clients.created_at DESC
-    `).all();
+    `).bind(...(gymId ? [gymId] : [])).all();
     const clients = (rows.results || []).map((client) => ({
       ...client,
       reviewFlags: buildReviewFlags(client)
@@ -153,12 +252,10 @@ async function handleApi(request, env, ctx, url) {
     const tempPassword = generateTempPassword();
     const hash = await hashPassword(tempPassword);
 
+    const clientGymId = getGymId(session);
     await env.DB.batch([
-      env.DB.prepare(`INSERT INTO clients (id, full_name, status) VALUES (?, ?, 'active')`).bind(clientId, fullName),
-      env.DB.prepare(`
-        INSERT INTO users (id, username, password_hash, role, client_id, must_change_password)
-        VALUES (?, ?, ?, 'client', ?, 1)
-      `).bind(userId, username, hash, clientId)
+      env.DB.prepare(`INSERT INTO clients (id, full_name, status, gym_id) VALUES (?, ?, 'active', ?)`).bind(clientId, fullName, clientGymId),
+      env.DB.prepare(`INSERT INTO users (id, username, password_hash, role, client_id, gym_id, must_change_password) VALUES (?, ?, ?, 'client', ?, ?, 1)`).bind(userId, username, hash, clientId, clientGymId)
     ]);
 
     return json({ ok: true, clientId, temporaryPassword: tempPassword });
@@ -336,6 +433,7 @@ function sanitizeUser(user) {
     role: user.role,
     client_id: user.client_id || null,
     full_name: user.full_name || null,
+    gym_id: user.gym_id || null,
     mustChangePassword: !!user.must_change_password
   };
 }
@@ -361,7 +459,14 @@ function assertAuthenticated(session) {
 
 function assertRole(session, role) {
   assertAuthenticated(session);
+  // superadmin can access all admin routes
+  if (session.user.role === "superadmin" && role === "admin") return;
   if (session.user.role !== role) throw new HttpError("Forbidden.", 403);
+}
+
+function getGymId(session) {
+  // superadmin has no gym_id — returns null (used to bypass filtering)
+  return session.user.gym_id || null;
 }
 
 async function getAdminClientDetail(env, clientId) {
@@ -798,93 +903,6 @@ Status rules: approved = well-structured evidence-based plan, needs_attention = 
   return callGeminiAgent(env, "sportsScientist", systemPrompt, plan, intake, null);
 }
 
-
-
-// ═══════════════════════════════════════════════════════════════
-//  AGENT FEEDBACK REFINEMENT
-//  Feeds agent issues/suggestions back to Gemini for an improved plan
-// ═══════════════════════════════════════════════════════════════
-
-async function refinePlanWithAgentFeedback(env, intake, draftPlan, agentReviews, progressContext = {}, householdContext = null) {
-  if (!env.GEMINI_API_KEY) return draftPlan;
-
-  const allApproved = agentReviews.overallStatus === "approved";
-  const hasIssues = [agentReviews.nutritionist, agentReviews.fitnessExpert, agentReviews.sportsScientist]
-    .some(r => r?.issues?.length > 0 || r?.suggestions?.length > 0);
-
-  if (allApproved && !hasIssues) {
-    return { ...draftPlan, generationMeta: { ...draftPlan.generationMeta, refined: false, refinementReason: "All agents approved — no refinement needed." } };
-  }
-
-  const feedbackLines = [];
-  const agents = [
-    { key: "nutritionist",    label: "Nutritionist" },
-    { key: "fitnessExpert",   label: "Fitness Expert" },
-    { key: "sportsScientist", label: "Sports Scientist" }
-  ];
-  for (const agent of agents) {
-    const r = agentReviews[agent.key];
-    if (!r) continue;
-    if (r.issues?.length) {
-      feedbackLines.push(`${agent.label} Issues:`);
-      r.issues.forEach(i => feedbackLines.push(`  - ${i}`));
-    }
-    if (r.suggestions?.length) {
-      feedbackLines.push(`${agent.label} Suggestions:`);
-      r.suggestions.forEach(s => feedbackLines.push(`  - ${s}`));
-    }
-  }
-
-  const householdNote = householdContext
-    ? `HOUSEHOLD CONSTRAINT — MANDATORY: This client shares all meals with ${householdContext.memberName}. When fixing meal issues, ALL dishes MUST remain IDENTICAL to the household reference plan. Only adjust macro numbers and portion sizes.\nHOUSEHOLD REFERENCE MEALS: ${JSON.stringify(householdContext.basePlan?.mealOptions || [])}`
-    : null;
-
-  const refinementPrompt = [
-    "You are a fitness coaching expert refining a plan based on specialist review feedback.",
-    "Fix EVERY issue and apply EVERY suggestion listed below.",
-    "Return an improved plan in the EXACT same JSON structure. Return JSON only — no prose, no markdown.",
-    ...(householdNote ? [householdNote] : []),
-    "Use this exact shape:",
-    JSON.stringify({
-      profileSummary: "string", calorieTarget: "string",
-      macros: { protein: "string", carbs: "string", fat: "string" },
-      mealOptions: [{ meal: "Breakfast", options: [{ label: "opt1", calories: 450, protein: 35, carbs: 50, fat: 12 }] }],
-      weeklyMealStructure: ["Mon - ..."], supplements: ["item"],
-      workoutSplit: [{ day: "Day 1", warmup: ["5 min light cardio"], exercises: ["exercise 3x8"], cooldown: ["quad stretch 30s"] }],
-      periodisation: "string", deloadProtocol: "string", progressionProtocol: "string",
-      progressMilestones: ["milestone"], successRules: ["rule"], cautions: ["caution"]
-    }),
-    "CLIENT INTAKE:", JSON.stringify(intake),
-    "DRAFT PLAN TO IMPROVE:", JSON.stringify(draftPlan),
-    "SPECIALIST FEEDBACK TO ADDRESS:", feedbackLines.join("\n"),
-    "RECENT PROGRESS CONTEXT:", JSON.stringify(buildProgressSummary(progressContext))
-  ].join("\n");
-
-  try {
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL || "gemini-2.5-flash"}:generateContent?key=${env.GEMINI_API_KEY}`;
-    const res = await fetch(apiUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: refinementPrompt }] }],
-        generationConfig: { responseMimeType: "application/json" }
-      })
-    });
-    if (!res.ok) return { ...draftPlan, generationMeta: { ...draftPlan.generationMeta, refined: false, refinementReason: `Refinement failed HTTP ${res.status} — using draft.` } };
-    const data = await res.json();
-    const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("") || "";
-    const parsed = safeJson(text, null);
-    if (!parsed || typeof parsed !== "object") return { ...draftPlan, generationMeta: { ...draftPlan.generationMeta, refined: false, refinementReason: "Refinement returned invalid JSON — using draft." } };
-    return normalizePlan(parsed, intake, {
-      source: "gemini", reason: "Plan refined based on agent feedback.",
-      model: env.GEMINI_MODEL || "gemini-2.5-flash", generatedAt: nowIso(),
-      refined: true, refinementReason: `Applied feedback from ${feedbackLines.length} specialist notes.`,
-      issuesAddressed: feedbackLines.length
-    });
-  } catch (err) {
-    return { ...draftPlan, generationMeta: { ...draftPlan.generationMeta, refined: false, refinementReason: `Refinement error: ${err.message}` } };
-  }
-}
 
 async function runAgentPipeline(env, intake, plan, householdContext = null) {
   // Run sequentially to avoid rate limits on free Gemini tier
