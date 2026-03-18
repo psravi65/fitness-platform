@@ -1429,6 +1429,8 @@
           ${showMeta && meta.reason ? `
             <div class="notice ${metaTone}">
               <strong>${meta.source === "gemini" ? "⚡ Gemini" : "⚙ Fallback"}:</strong> ${escapeHtml(meta.reason)}
+              ${meta.refined ? `<div style="margin-top:6px;color:var(--lime);font-size:12px">✓ Refined by agent feedback · ${meta.issuesAddressed || 0} specialist notes applied</div>` : ""}
+              ${meta.refinementReason && !meta.refined ? `<div style="margin-top:6px;color:var(--text-3);font-size:12px">${escapeHtml(meta.refinementReason)}</div>` : ""}
               ${meta.model ? `<div class="subtle" style="margin-top:6px">Model: ${escapeHtml(meta.model)}</div>` : ""}
               ${meta.details ? `<div class="subtle" style="margin-top:6px;white-space:pre-wrap">${escapeHtml(meta.details)}</div>` : ""}
             </div>
