@@ -107,6 +107,16 @@ async function handleApi(request, env, ctx, url) {
     return json({ ok: true });
   }
 
+  if (url.pathname === "/api/admin/clients/all-for-household" && method === "GET") {
+    assertRole(session, "admin");
+    const rows = await env.DB.prepare(`
+      SELECT clients.id, clients.full_name, clients.household_id, users.username
+      FROM clients LEFT JOIN users ON users.client_id = clients.id
+      ORDER BY clients.full_name ASC
+    `).all();
+    return json({ clients: rows.results || [] });
+  }
+
   if (url.pathname === "/api/admin/clients" && method === "GET") {
     assertRole(session, "admin");
     const rows = await env.DB.prepare(`
@@ -186,6 +196,24 @@ async function handleApi(request, env, ctx, url) {
     return json({ ok: true });
   }
 
+  const householdMatch = url.pathname.match(/^\/api\/admin\/clients\/([^/]+)\/household$/);
+  if (householdMatch && method === "POST") {
+    assertRole(session, "admin");
+    const body = await readJson(request);
+    const clientId = householdMatch[1];
+    if (body.householdId) {
+      const householdId = body.householdId === "new" ? crypto.randomUUID() : body.householdId;
+      await env.DB.prepare(`UPDATE clients SET household_id = ? WHERE id = ?`).bind(householdId, clientId).run();
+      // If baseMealsOn is set, store it — this client's plan will be used as meal reference
+      if (body.baseMealsOn) {
+        await env.DB.prepare(`UPDATE clients SET household_id = ? || ':base' WHERE id = ?`).bind(householdId, body.baseMealsOn).run();
+      }
+    } else {
+      await env.DB.prepare(`UPDATE clients SET household_id = NULL WHERE id = ?`).bind(clientId).run();
+    }
+    return json({ ok: true });
+  }
+
   const intakeEditMatch = url.pathname.match(/^\/api\/admin\/clients\/([^/]+)\/intake-edit$/);
   if (intakeEditMatch && method === "POST") {
     assertRole(session, "admin");
@@ -203,12 +231,16 @@ async function handleApi(request, env, ctx, url) {
     const intake = await getLatestIntake(env, clientId);
     if (!intake) return json({ error: "Client intake is required before generating a plan." }, 400);
     const progressContext = await getProgressContext(env, clientId);
-    const normalized = await generatePlanFromIntake(env, intake.answers_json, progressContext);
-    const draftReviews = await runAgentPipeline(env, intake.answers_json, normalized);
-    const finalPlan = await refinePlanWithAgentFeedback(env, intake.answers_json, normalized, draftReviews, progressContext);
-    // Run agents again on the refined plan — this is the final verdict the admin sees
-    const finalReviews = await runAgentPipeline(env, intake.answers_json, finalPlan);
+
+    // ── Household context: find reference member's plan if household exists
+    const householdContext = await getHouseholdContext(env, clientId);
+
+    const normalized = await generatePlanFromIntake(env, intake.answers_json, progressContext, householdContext);
+    const draftReviews = await runAgentPipeline(env, intake.answers_json, normalized, householdContext);
+    const finalPlan = await refinePlanWithAgentFeedback(env, intake.answers_json, normalized, draftReviews, progressContext, householdContext);
+    const finalReviews = await runAgentPipeline(env, intake.answers_json, finalPlan, householdContext);
     finalReviews.refinedFrom = draftReviews;
+    if (householdContext) finalReviews.householdAware = true;
     await saveDraftPlan(env, clientId, intake.id, finalPlan, finalReviews);
     return json({ ok: true });
   }
@@ -341,7 +373,15 @@ async function getAdminClientDetail(env, clientId) {
   const dailyLogs = await selectJsonRows(env, `SELECT * FROM daily_logs WHERE client_id = ? ORDER BY log_date DESC LIMIT 7`, [clientId]);
   const checkins = await selectJsonRows(env, `SELECT * FROM checkins WHERE client_id = ? ORDER BY checkin_date DESC LIMIT 8`, [clientId]);
   const weeklyReview = await env.DB.prepare(`SELECT * FROM weekly_reviews WHERE client_id = ? ORDER BY updated_at DESC LIMIT 1`).bind(clientId).first();
-  return { client, user, intake, plan, dailyLogs, checkins, weeklyReview: parseStoredJsonRow(weeklyReview) };
+  // Get household members
+  const householdMembers = client.household_id ? (await env.DB.prepare(`
+    SELECT clients.id, clients.full_name, users.username
+    FROM clients
+    LEFT JOIN users ON users.client_id = clients.id AND users.role = 'client'
+    WHERE clients.household_id = ? AND clients.id != ?
+  `).bind(client.household_id, clientId).all()).results : [];
+
+  return { client, user, intake, plan, dailyLogs, checkins, weeklyReview: parseStoredJsonRow(weeklyReview), householdMembers };
 }
 
 async function getClientBootstrap(env, clientId) {
@@ -352,6 +392,34 @@ async function getClientBootstrap(env, clientId) {
   const dailyLog = await env.DB.prepare(`SELECT * FROM daily_logs WHERE client_id = ? AND log_date = ?`).bind(clientId, today).first();
   const weeklyReview = await env.DB.prepare(`SELECT * FROM weekly_reviews WHERE client_id = ? ORDER BY updated_at DESC LIMIT 1`).bind(clientId).first();
   const recentWorkoutLogs = await selectJsonRows(env, `SELECT * FROM daily_logs WHERE client_id = ? AND TRIM(COALESCE(workout_json, '')) <> '' ORDER BY log_date DESC LIMIT 20`, [clientId]);
+  // Household: find meal scaling factor if client shares meals with household
+  let householdScale = null;
+  if (client?.household_id) {
+    const householdMembers = await env.DB.prepare(`
+      SELECT clients.id, clients.full_name FROM clients
+      WHERE household_id = ? AND id != ?
+    `).bind(client.household_id, clientId).all();
+    if (householdMembers.results?.length > 0) {
+      // Find the household member with a published plan to base portions on
+      for (const member of householdMembers.results) {
+        const memberPlan = await getPublishedPlan(env, member.id);
+        if (memberPlan?.effectivePlan?.calorieTarget) {
+          const myTarget = Number(String(plan?.effectivePlan?.calorieTarget || "0").replace(/[^0-9.]/g, "")) || 0;
+          const theirTarget = Number(String(memberPlan.effectivePlan.calorieTarget).replace(/[^0-9.]/g, "")) || 0;
+          if (myTarget > 0 && theirTarget > 0) {
+            householdScale = {
+              memberName: member.full_name,
+              scale: Math.round((myTarget / theirTarget) * 100) / 100,
+              myTarget,
+              theirTarget
+            };
+          }
+          break;
+        }
+      }
+    }
+  }
+
   return {
     client,
     intake,
@@ -360,7 +428,8 @@ async function getClientBootstrap(env, clientId) {
     dailyLog: parseStoredJsonRow(dailyLog),
     weeklyReview: parseStoredJsonRow(weeklyReview),
     checkins: await selectJsonRows(env, `SELECT * FROM checkins WHERE client_id = ? ORDER BY checkin_date DESC LIMIT 10`, [clientId]),
-    recentWorkoutLogs
+    recentWorkoutLogs,
+    householdScale
   };
 }
 
@@ -581,15 +650,73 @@ async function getProgressContext(env, clientId) {
 //  Each agent uses a focused system prompt and returns structured JSON.
 // ═══════════════════════════════════════════════════════════════
 
-async function callGeminiAgent(env, agentName, systemPrompt, planJson, intakeJson) {
+
+// ═══════════════════════════════════════════════════════════════
+//  HOUSEHOLD CONTEXT
+//  Fetches the reference member's plan and intake for meal alignment
+// ═══════════════════════════════════════════════════════════════
+
+async function getHouseholdContext(env, clientId) {
+  const client = await env.DB.prepare(`SELECT * FROM clients WHERE id = ?`).bind(clientId).first();
+  if (!client?.household_id) return null;
+
+  // Parse household_id — may have ":base" suffix to mark reference member
+  const rawHouseholdId = client.household_id;
+  const householdId = rawHouseholdId.replace(":base", "");
+
+  // Get all household members except current client
+  const members = await env.DB.prepare(`
+    SELECT id, full_name, household_id FROM clients
+    WHERE (household_id = ? OR household_id = ?) AND id != ?
+  `).bind(householdId, householdId + ":base", clientId).all();
+
+  if (!members.results?.length) return null;
+
+  // Find the base member (marked with :base) or just pick the first with a published plan
+  let baseMember = members.results.find(m => m.household_id?.endsWith(":base"));
+  if (!baseMember) baseMember = members.results[0];
+
+  const basePlan = await getPublishedPlan(env, baseMember.id);
+  const baseIntake = await getLatestIntake(env, baseMember.id);
+
+  if (!basePlan) return null;
+
+  // Calculate portion scale
+  const myCalorieTarget = null; // will be calculated after plan generation
+  const theirCalorieTarget = Number(
+    String(basePlan.effectivePlan?.calorieTarget || "0").replace(/[^0-9.]/g, "")
+  ) || 0;
+
+  return {
+    memberName: baseMember.full_name,
+    memberId: baseMember.id,
+    basePlan: basePlan.effectivePlan || basePlan,
+    baseIntake: baseIntake?.answers_json || {},
+    theirCalorieTarget,
+    isBase: rawHouseholdId.endsWith(":base") // current client is the base
+  };
+}
+
+async function callGeminiAgent(env, agentName, systemPrompt, planJson, intakeJson, householdContext = null) {
   if (!env.GEMINI_API_KEY) {
     return { status: "skipped", reason: "GEMINI_API_KEY not configured", issues: [], suggestions: [] };
   }
-  const prompt = [
-    systemPrompt,
+  const parts = [systemPrompt];
+  if (householdContext) {
+    parts.push(
+      "HOUSEHOLD MEAL ALIGNMENT — THIS IS CRITICAL:",
+      `This client (${intakeJson?.profile?.fullName || "client"}) shares all meals with ${householdContext.memberName}.`,
+      `ALL meal dishes in this plan MUST be identical to the household reference plan below — only portion sizes and macro numbers should differ.`,
+      `${householdContext.memberName}'s calorie target: ${householdContext.theirCalorieTarget} kcal. Scale this client's portions proportionally.`,
+      `Any dish that appears in this client's plan but NOT in the household reference plan is a FLAGGED issue.`,
+      "HOUSEHOLD REFERENCE MEAL PLAN:",
+      JSON.stringify({ mealOptions: householdContext.basePlan?.mealOptions || [], calorieTarget: householdContext.basePlan?.calorieTarget })
+    );
+  }
+  parts.push(
     "INTAKE DATA:",
     JSON.stringify(intakeJson),
-    "GENERATED PLAN:",
+    "GENERATED PLAN TO REVIEW:",
     JSON.stringify(planJson),
     "Return ONLY a JSON object in this exact shape — no prose, no markdown:",
     JSON.stringify({
@@ -599,7 +726,8 @@ async function callGeminiAgent(env, agentName, systemPrompt, planJson, intakeJso
       issues: ["list of specific problems found, empty array if none"],
       suggestions: ["list of specific improvements, empty array if none"]
     })
-  ].join("\n");
+  );
+  const prompt = parts.join("\n");
 
   try {
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL || "gemini-2.5-flash"}:generateContent?key=${env.GEMINI_API_KEY}`;
@@ -633,18 +761,21 @@ async function callGeminiAgent(env, agentName, systemPrompt, planJson, intakeJso
   }
 }
 
-async function runNutritionistAgent(env, intake, plan) {
+async function runNutritionistAgent(env, intake, plan, householdContext = null) {
+  const householdExtra = householdContext
+    ? `\nHOUSEHOLD RULE: This client shares all meals with ${householdContext.memberName}. Meal DISHES must be IDENTICAL to the household reference plan. Macro values should be proportionally scaled to this client's calorie target. Flag ANY dish mismatch as a critical issue.`
+    : "";
   const systemPrompt = `You are a registered sports nutritionist reviewing an AI-generated fitness coaching plan.
 Your job is to validate the nutrition section ONLY — macros, calories, meal options, and diet structure.
 Focus on: calorie target vs goal and body weight, protein adequacy (minimum 1.6g/kg for muscle, 1.2g/kg for fat loss),
 meal variety and cuisine alignment with client preferences, food allergies respected, meal frequency matching client preference,
 any dangerous deficits (under 1200 kcal for women, under 1500 kcal for men).
 Be specific and constructive. Score 1-10 where 10 is perfect.
-Status rules: approved = no serious issues, needs_attention = minor fixes needed, flagged = serious nutritional problem.`;
-  return callGeminiAgent(env, "nutritionist", systemPrompt, plan, intake);
+Status rules: approved = no serious issues, needs_attention = minor fixes needed, flagged = serious nutritional problem.${householdExtra}`;
+  return callGeminiAgent(env, "nutritionist", systemPrompt, plan, intake, householdContext);
 }
 
-async function runFitnessExpertAgent(env, intake, plan) {
+async function runFitnessExpertAgent(env, intake, plan, householdContext = null) {
   const systemPrompt = `You are a certified strength and conditioning coach (NSCA/NASM level) reviewing an AI-generated fitness plan.
 Your job is to validate the workout section ONLY — exercise selection, training split, volume, and safety.
 Focus on: training days matching client availability, exercise selection appropriate for gym access stated,
@@ -652,10 +783,10 @@ all injuries and movement restrictions fully respected, volume appropriate for e
 compound vs isolation balance, rest day placement, warm-up and cool-down included.
 Be specific and constructive. Score 1-10 where 10 is perfect.
 Status rules: approved = no serious issues, needs_attention = minor fixes needed, flagged = unsafe or inappropriate plan.`;
-  return callGeminiAgent(env, "fitnessExpert", systemPrompt, plan, intake);
+  return callGeminiAgent(env, "fitnessExpert", systemPrompt, plan, intake, null);
 }
 
-async function runSportsScientistAgent(env, intake, plan) {
+async function runSportsScientistAgent(env, intake, plan, householdContext = null) {
   const systemPrompt = `You are a sports scientist specialising in evidence-based training programme design.
 Your job is to validate the overall structure of this fitness plan — periodisation, progressive overload, and recovery science.
 Focus on: progressive overload protocol present (weekly load increases), periodisation structure (linear, undulating, or block),
@@ -664,41 +795,33 @@ milestones are measurable and realistic, success rules are evidence-based not an
 overall plan coherence — nutrition and training aligned toward the same goal.
 Be specific and constructive. Score 1-10 where 10 is perfect.
 Status rules: approved = well-structured evidence-based plan, needs_attention = missing some science principles, flagged = poor structure that will limit results.`;
-  return callGeminiAgent(env, "sportsScientist", systemPrompt, plan, intake);
+  return callGeminiAgent(env, "sportsScientist", systemPrompt, plan, intake, null);
 }
+
 
 
 // ═══════════════════════════════════════════════════════════════
 //  AGENT FEEDBACK REFINEMENT
-//  Takes the agent reviews and feeds them back to Gemini
-//  to produce an improved final plan.
+//  Feeds agent issues/suggestions back to Gemini for an improved plan
 // ═══════════════════════════════════════════════════════════════
 
-async function refinePlanWithAgentFeedback(env, intake, draftPlan, agentReviews, progressContext = {}) {
+async function refinePlanWithAgentFeedback(env, intake, draftPlan, agentReviews, progressContext = {}, householdContext = null) {
   if (!env.GEMINI_API_KEY) return draftPlan;
 
-  // If all agents approved and no issues found, skip refinement — plan is already good
   const allApproved = agentReviews.overallStatus === "approved";
   const hasIssues = [agentReviews.nutritionist, agentReviews.fitnessExpert, agentReviews.sportsScientist]
     .some(r => r?.issues?.length > 0 || r?.suggestions?.length > 0);
 
   if (allApproved && !hasIssues) {
-    return normalizePlan(draftPlan, intake, {
-      ...draftPlan.generationMeta,
-      refined: false,
-      refinementReason: "All agents approved with no issues — no refinement needed."
-    });
+    return { ...draftPlan, generationMeta: { ...draftPlan.generationMeta, refined: false, refinementReason: "All agents approved — no refinement needed." } };
   }
 
-  // Compile all agent feedback into a clear list
   const feedbackLines = [];
-
   const agents = [
     { key: "nutritionist",    label: "Nutritionist" },
     { key: "fitnessExpert",   label: "Fitness Expert" },
     { key: "sportsScientist", label: "Sports Scientist" }
   ];
-
   for (const agent of agents) {
     const r = agentReviews[agent.key];
     if (!r) continue;
@@ -712,36 +835,29 @@ async function refinePlanWithAgentFeedback(env, intake, draftPlan, agentReviews,
     }
   }
 
+  const householdNote = householdContext
+    ? `HOUSEHOLD CONSTRAINT — MANDATORY: This client shares all meals with ${householdContext.memberName}. When fixing meal issues, ALL dishes MUST remain IDENTICAL to the household reference plan. Only adjust macro numbers and portion sizes.\nHOUSEHOLD REFERENCE MEALS: ${JSON.stringify(householdContext.basePlan?.mealOptions || [])}`
+    : null;
+
   const refinementPrompt = [
     "You are a fitness coaching expert refining a plan based on specialist review feedback.",
-    "You will be given: (1) the original client intake, (2) a draft plan, (3) feedback from three specialists.",
-    "Your job is to fix EVERY issue and apply EVERY suggestion listed in the feedback.",
-    "Return an improved plan in the EXACT same JSON structure as the draft plan.",
-    "Return JSON only — no prose, no markdown.",
+    "Fix EVERY issue and apply EVERY suggestion listed below.",
+    "Return an improved plan in the EXACT same JSON structure. Return JSON only — no prose, no markdown.",
+    ...(householdNote ? [householdNote] : []),
     "Use this exact shape:",
     JSON.stringify({
-      profileSummary: "string",
-      calorieTarget: "string",
+      profileSummary: "string", calorieTarget: "string",
       macros: { protein: "string", carbs: "string", fat: "string" },
       mealOptions: [{ meal: "Breakfast", options: [{ label: "opt1", calories: 450, protein: 35, carbs: 50, fat: 12 }] }],
-      weeklyMealStructure: ["Mon - ..."],
-      supplements: ["item"],
-      workoutSplit: [{ day: "Day 1", warmup: ["5 min light cardio", "dynamic stretch"], exercises: ["exercise 3x8"], cooldown: ["quad stretch 30s", "hamstring stretch 30s"] }],
-      periodisation: "string — describe the mesocycle structure, e.g. 6-week linear: weeks 1-2 adaptation, 3-4 strength, 5-6 intensity, week 7 deload",
-      deloadProtocol: "string — describe when and how to deload, e.g. Every 5th week: reduce all weights by 50%, cut sets in half, focus on form",
-      progressionProtocol: "string — specific week-to-week progression rules, e.g. 2-for-2 rule: when you complete 2 extra reps on last set for 2 consecutive sessions, increase weight by 2.5kg",
-      progressMilestones: ["milestone"],
-      successRules: ["rule"],
-      cautions: ["caution"]
+      weeklyMealStructure: ["Mon - ..."], supplements: ["item"],
+      workoutSplit: [{ day: "Day 1", warmup: ["5 min light cardio"], exercises: ["exercise 3x8"], cooldown: ["quad stretch 30s"] }],
+      periodisation: "string", deloadProtocol: "string", progressionProtocol: "string",
+      progressMilestones: ["milestone"], successRules: ["rule"], cautions: ["caution"]
     }),
-    "CLIENT INTAKE:",
-    JSON.stringify(intake),
-    "DRAFT PLAN TO IMPROVE:",
-    JSON.stringify(draftPlan),
-    "SPECIALIST FEEDBACK TO ADDRESS:",
-    feedbackLines.join("\n"),
-    "RECENT PROGRESS CONTEXT:",
-    JSON.stringify(buildProgressSummary(progressContext))
+    "CLIENT INTAKE:", JSON.stringify(intake),
+    "DRAFT PLAN TO IMPROVE:", JSON.stringify(draftPlan),
+    "SPECIALIST FEEDBACK TO ADDRESS:", feedbackLines.join("\n"),
+    "RECENT PROGRESS CONTEXT:", JSON.stringify(buildProgressSummary(progressContext))
   ].join("\n");
 
   try {
@@ -754,52 +870,27 @@ async function refinePlanWithAgentFeedback(env, intake, draftPlan, agentReviews,
         generationConfig: { responseMimeType: "application/json" }
       })
     });
-
-    if (!res.ok) {
-      // Refinement failed — fall back to original draft
-      return normalizePlan(draftPlan, intake, {
-        ...draftPlan.generationMeta,
-        refined: false,
-        refinementReason: `Refinement API call failed with HTTP ${res.status} — using original draft.`
-      });
-    }
-
+    if (!res.ok) return { ...draftPlan, generationMeta: { ...draftPlan.generationMeta, refined: false, refinementReason: `Refinement failed HTTP ${res.status} — using draft.` } };
     const data = await res.json();
     const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("") || "";
     const parsed = safeJson(text, null);
-
-    if (!parsed || typeof parsed !== "object") {
-      return normalizePlan(draftPlan, intake, {
-        ...draftPlan.generationMeta,
-        refined: false,
-        refinementReason: "Refinement returned invalid JSON — using original draft."
-      });
-    }
-
+    if (!parsed || typeof parsed !== "object") return { ...draftPlan, generationMeta: { ...draftPlan.generationMeta, refined: false, refinementReason: "Refinement returned invalid JSON — using draft." } };
     return normalizePlan(parsed, intake, {
-      source: "gemini",
-      reason: "Plan refined based on agent feedback.",
-      model: env.GEMINI_MODEL || "gemini-2.5-flash",
-      generatedAt: nowIso(),
-      refined: true,
-      refinementReason: `Applied feedback from ${feedbackLines.length} specialist notes.`,
+      source: "gemini", reason: "Plan refined based on agent feedback.",
+      model: env.GEMINI_MODEL || "gemini-2.5-flash", generatedAt: nowIso(),
+      refined: true, refinementReason: `Applied feedback from ${feedbackLines.length} specialist notes.`,
       issuesAddressed: feedbackLines.length
     });
-
   } catch (err) {
-    return normalizePlan(draftPlan, intake, {
-      ...draftPlan.generationMeta,
-      refined: false,
-      refinementReason: `Refinement error: ${err.message} — using original draft.`
-    });
+    return { ...draftPlan, generationMeta: { ...draftPlan.generationMeta, refined: false, refinementReason: `Refinement error: ${err.message}` } };
   }
 }
 
-async function runAgentPipeline(env, intake, plan) {
+async function runAgentPipeline(env, intake, plan, householdContext = null) {
   // Run sequentially to avoid rate limits on free Gemini tier
-  const nutritionist = await runNutritionistAgent(env, intake, plan);
-  const fitnessExpert = await runFitnessExpertAgent(env, intake, plan);
-  const sportsScientist = await runSportsScientistAgent(env, intake, plan);
+  const nutritionist = await runNutritionistAgent(env, intake, plan, householdContext);
+  const fitnessExpert = await runFitnessExpertAgent(env, intake, plan, null);
+  const sportsScientist = await runSportsScientistAgent(env, intake, plan, null);
   return {
     nutritionist,
     fitnessExpert,
@@ -813,7 +904,7 @@ async function runAgentPipeline(env, intake, plan) {
   };
 }
 
-async function generatePlanFromIntake(env, intake, progressContext = {}) {
+async function generatePlanFromIntake(env, intake, progressContext = {}, householdContext = null) {
   if (!env.GEMINI_API_KEY) {
     return fallbackPlanFromIntake(intake, {
       source: "fallback",
@@ -822,12 +913,17 @@ async function generatePlanFromIntake(env, intake, progressContext = {}) {
     });
   }
 
+  const householdInstruction = householdContext
+    ? `HOUSEHOLD MEAL ALIGNMENT — MANDATORY: This client shares all meals with ${householdContext.memberName} (calorie target: ${householdContext.theirCalorieTarget} kcal). You MUST use the EXACT SAME meal dishes as in the household reference plan below — only scale the portion sizes and macro numbers to this client's calorie target. Do not invent new dishes.\nHOUSEHOLD REFERENCE MEALS: ${JSON.stringify(householdContext.basePlan?.mealOptions || [])}`
+    : null;
+
   const prompt = [
     "You are generating a fitness coaching plan.",
     "Return JSON only.",
     "For each meal in mealOptions, provide 6 or 7 practical varieties.",
     "Each meal option list should mean the client chooses any 1 option for that meal, not all options together.",
     "Make the food options cuisine-aware and realistic for daily repetition.",
+    ...(householdInstruction ? [householdInstruction] : []),
     "If progress data is provided, use it to adjust calories, macros, adherence guidance, meal simplicity, recovery, and training recommendations.",
     "Pay attention to client notes, daily adherence, check-in trends, and weekly review consistency.",
     "Use this exact shape:",
