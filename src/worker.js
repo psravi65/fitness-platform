@@ -204,10 +204,12 @@ async function handleApi(request, env, ctx, url) {
     if (!intake) return json({ error: "Client intake is required before generating a plan." }, 400);
     const progressContext = await getProgressContext(env, clientId);
     const normalized = await generatePlanFromIntake(env, intake.answers_json, progressContext);
-    const agentReviews = await runAgentPipeline(env, intake.answers_json, normalized);
-    // Feed agent feedback back to Gemini for a refined final plan
-    const finalPlan = await refinePlanWithAgentFeedback(env, intake.answers_json, normalized, agentReviews, progressContext);
-    await saveDraftPlan(env, clientId, intake.id, finalPlan, agentReviews);
+    const draftReviews = await runAgentPipeline(env, intake.answers_json, normalized);
+    const finalPlan = await refinePlanWithAgentFeedback(env, intake.answers_json, normalized, draftReviews, progressContext);
+    // Run agents again on the refined plan — this is the final verdict the admin sees
+    const finalReviews = await runAgentPipeline(env, intake.answers_json, finalPlan);
+    finalReviews.refinedFrom = draftReviews;
+    await saveDraftPlan(env, clientId, intake.id, finalPlan, finalReviews);
     return json({ ok: true });
   }
 
@@ -724,7 +726,10 @@ async function refinePlanWithAgentFeedback(env, intake, draftPlan, agentReviews,
       mealOptions: [{ meal: "Breakfast", options: [{ label: "opt1", calories: 450, protein: 35, carbs: 50, fat: 12 }] }],
       weeklyMealStructure: ["Mon - ..."],
       supplements: ["item"],
-      workoutSplit: [{ day: "Day 1", exercises: ["exercise"] }],
+      workoutSplit: [{ day: "Day 1", warmup: ["5 min light cardio", "dynamic stretch"], exercises: ["exercise 3x8"], cooldown: ["quad stretch 30s", "hamstring stretch 30s"] }],
+      periodisation: "string — describe the mesocycle structure, e.g. 6-week linear: weeks 1-2 adaptation, 3-4 strength, 5-6 intensity, week 7 deload",
+      deloadProtocol: "string — describe when and how to deload, e.g. Every 5th week: reduce all weights by 50%, cut sets in half, focus on form",
+      progressionProtocol: "string — specific week-to-week progression rules, e.g. 2-for-2 rule: when you complete 2 extra reps on last set for 2 consecutive sessions, increase weight by 2.5kg",
       progressMilestones: ["milestone"],
       successRules: ["rule"],
       cautions: ["caution"]
@@ -833,7 +838,10 @@ async function generatePlanFromIntake(env, intake, progressContext = {}) {
       mealOptions: [{ meal: "Breakfast", options: [{ label: "opt1", calories: 450, protein: 35, carbs: 50, fat: 12 }] }],
       weeklyMealStructure: ["Mon - ..."],
       supplements: ["item"],
-      workoutSplit: [{ day: "Day 1", exercises: ["exercise"] }],
+      workoutSplit: [{ day: "Day 1", warmup: ["5 min light cardio", "dynamic stretch"], exercises: ["exercise 3x8"], cooldown: ["quad stretch 30s", "hamstring stretch 30s"] }],
+      periodisation: "string — describe the mesocycle structure, e.g. 6-week linear: weeks 1-2 adaptation, 3-4 strength, 5-6 intensity, week 7 deload",
+      deloadProtocol: "string — describe when and how to deload, e.g. Every 5th week: reduce all weights by 50%, cut sets in half, focus on form",
+      progressionProtocol: "string — specific week-to-week progression rules, e.g. 2-for-2 rule: when you complete 2 extra reps on last set for 2 consecutive sessions, increase weight by 2.5kg",
       progressMilestones: ["milestone"],
       successRules: ["rule"],
       cautions: ["caution"]
@@ -985,7 +993,15 @@ function normalizePlan(plan, intake, generationMetaOverride) {
     mealOptions: Array.isArray(plan.mealOptions) ? plan.mealOptions.map(normalizeMealSection) : [],
     weeklyMealStructure: Array.isArray(plan.weeklyMealStructure) ? plan.weeklyMealStructure : [],
     supplements: Array.isArray(plan.supplements) ? plan.supplements : [],
-    workoutSplit: Array.isArray(plan.workoutSplit) ? plan.workoutSplit : [],
+    workoutSplit: Array.isArray(plan.workoutSplit) ? plan.workoutSplit.map(day => ({
+      day: day.day || "",
+      warmup: Array.isArray(day.warmup) ? day.warmup : [],
+      exercises: Array.isArray(day.exercises) ? day.exercises : [],
+      cooldown: Array.isArray(day.cooldown) ? day.cooldown : []
+    })) : [],
+    periodisation: plan.periodisation || "",
+    deloadProtocol: plan.deloadProtocol || "",
+    progressionProtocol: plan.progressionProtocol || "",
     progressMilestones: Array.isArray(plan.progressMilestones) ? plan.progressMilestones : [],
     successRules: Array.isArray(plan.successRules) ? plan.successRules : [],
     cautions: Array.isArray(plan.cautions) ? plan.cautions : [],
