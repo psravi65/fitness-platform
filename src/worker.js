@@ -412,10 +412,12 @@ async function getPublishedPlan(env, clientId) {
 function hydratePlanRow(row) {
   const generated = safeJson(row.generated_json, {});
   const edited = row.edited_json ? safeJson(row.edited_json, null) : null;
+  const agentReviews = row.agent_reviews_json ? safeJson(row.agent_reviews_json, null) : null;
   return {
     ...row,
     generated_json: generated,
     edited_json: edited,
+    agent_reviews_json: agentReviews,
     effectivePlan: edited || generated
   };
 }
