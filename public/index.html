@@ -1294,6 +1294,85 @@
       }
     }
 
+    async function linkHousehold(clientId, householdId){
+      try{
+        await api("/api/admin/clients/" + clientId + "/household", {
+          method: "POST",
+          body: JSON.stringify({ householdId })
+        });
+        setFlash(householdId ? "Household linked." : "Household unlinked.");
+        await bootstrapForRoute();
+      }catch(err){
+        setFlash(err.message, true);
+      }
+    }
+
+    async function showHouseholdLinkModal(clientId){
+      try{
+        const res = await api("/api/admin/clients/all-for-household", { method: "GET", headers: {} });
+        const others = (res.clients || []).filter(c => c.id !== clientId);
+        if(!others.length){ setFlash("No other clients to link.", true); return; }
+
+        // Step 1: Pick the household member
+        const choice = window.prompt(
+          "Step 1 of 2 — Which client to link as household member?\n\n" +
+          others.map((c,i) => `${i+1}. ${c.full_name} (@${c.username || ""})`).join("\n") +
+          "\n\nEnter number or name:"
+        );
+        if(!choice) return;
+        const idx = parseInt(choice) - 1;
+        const picked = others[idx] || others.find(c =>
+          c.full_name.toLowerCase().includes(choice.toLowerCase()) ||
+          (c.username || "").toLowerCase().includes(choice.toLowerCase())
+        );
+        if(!picked){ setFlash("Client not found.", true); return; }
+
+        // Step 2: Ask whose meals to base the household on
+        const currentClient = state.adminClientDetail?.client;
+        const baseChoice = window.prompt(
+          "Step 2 of 2 — Whose meal plan should be used as the BASE for the household?\n\n" +
+          "The other person's meals will be aligned to match the base person's dishes,\n" +
+          "with portions scaled to their own calorie target.\n\n" +
+          `1. ${currentClient?.full_name || "Current client"} (being viewed now)\n` +
+          `2. ${picked.full_name}\n\n` +
+          "Enter 1 or 2:"
+        );
+        if(!baseChoice) return;
+        const baseMemberId = baseChoice.trim() === "2" ? picked.id : clientId;
+
+        // Link both clients to same household, marking the base
+        const householdId = picked.household_id?.replace(":base","") || "new";
+        const resolvedId = householdId === "new" ? null : householdId;
+
+        // Link current client
+        await api("/api/admin/clients/" + clientId + "/household", {
+          method: "POST",
+          body: JSON.stringify({
+            householdId: resolvedId || "new",
+            markAsBase: baseMemberId === clientId
+          })
+        });
+
+        // Re-fetch to get the actual household_id assigned
+        const updated = await api("/api/admin/clients/" + clientId, { method: "GET", headers: {} });
+        const newHouseholdId = (updated.client?.household_id || "").replace(":base","");
+
+        // Link the other client to same household
+        await api("/api/admin/clients/" + picked.id + "/household", {
+          method: "POST",
+          body: JSON.stringify({
+            householdId: newHouseholdId,
+            markAsBase: baseMemberId === picked.id
+          })
+        });
+
+        setFlash(`Household linked. Base meals: ${baseMemberId === clientId ? currentClient?.full_name : picked.full_name}. Regenerate both plans for full alignment.`);
+        await bootstrapForRoute();
+      }catch(err){
+        setFlash(err.message, true);
+      }
+    }
+
     async function exportSheets(clientId){
       try{
         await api("/api/admin/exports/google-sheets", {
@@ -1703,8 +1782,11 @@
       return `
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;padding:10px 14px;background:var(--surface-2);border-radius:10px;border-left:3px solid ${overallColor}">
           <div style="font-size:13px;font-weight:700;color:${overallColor}">${statusLabel[reviews.overallStatus] || reviews.overallStatus}</div>
-          <div style="font-size:11px;color:var(--text-3);font-family:'JetBrains Mono',monospace">
-            ${reviews.refinedFrom ? "Post-refinement review" : "Agent review"} · ${reviews.pipelineRunAt ? reviews.pipelineRunAt.slice(0,10) : "today"}
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <div style="font-size:11px;color:var(--text-3);font-family:'JetBrains Mono',monospace">
+              ${reviews.refinedFrom ? "Post-refinement review" : "Agent review"} · ${reviews.pipelineRunAt ? reviews.pipelineRunAt.slice(0,10) : "today"}
+            </div>
+            ${reviews.householdAware ? `<div style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--teal);background:rgba(0,203,168,.1);border:1px solid rgba(0,203,168,.2);padding:2px 8px;border-radius:999px">🏠 Household-aware</div>` : ""}
           </div>
         </div>
         ${reviews.refinedFrom ? `
@@ -1928,13 +2010,12 @@
 
       const warmupHtml = session?.warmup?.length ? `
         <div class="client-panel" style="border-color:rgba(0,203,168,.25);background:rgba(0,203,168,.04);margin-bottom:10px">
-          <div class="client-panel-eyebrow" style="color:var(--teal)">🔥 Warm-up</div>
-          <div style="margin-top:8px;display:grid;gap:6px">
+          <div class="client-panel-eyebrow" style="color:var(--teal)">🔥 Warm-up — complete before starting main workout</div>
+          <div style="margin-top:10px;display:grid;gap:8px">
             ${session.warmup.map((w, i) => `
-              <label class="set-toggle-wrap" style="display:flex;align-items:center;gap:10px;width:100%">
-                <input class="set-check" type="checkbox" name="warmup_${i}" data-warmup="true"/>
-                <span class="set-toggle-label" style="min-width:32px;font-size:11px">${i+1}</span>
-                <span style="font-size:13px;color:var(--text-2);flex:1">${escapeHtml(w)}</span>
+              <label style="display:flex;align-items:center;gap:12px;cursor:pointer;padding:9px 12px;background:var(--surface-2);border:1px solid rgba(0,203,168,.15);border-radius:10px">
+                <input type="checkbox" name="warmup_${i}" style="width:16px;height:16px;accent-color:var(--teal);flex-shrink:0"/>
+                <span style="font-size:13px;color:var(--text-2);line-height:1.4">${escapeHtml(w)}</span>
               </label>
             `).join("")}
           </div>
@@ -1942,13 +2023,12 @@
 
       const cooldownHtml = session?.cooldown?.length ? `
         <div class="client-panel" style="border-color:rgba(157,124,244,.25);background:rgba(157,124,244,.04);margin-top:10px">
-          <div class="client-panel-eyebrow" style="color:var(--purple)">❄️ Cool-down</div>
-          <div style="margin-top:8px;display:grid;gap:6px">
+          <div class="client-panel-eyebrow" style="color:var(--purple)">❄️ Cool-down — complete after main workout</div>
+          <div style="margin-top:10px;display:grid;gap:8px">
             ${session.cooldown.map((c, i) => `
-              <label class="set-toggle-wrap" style="display:flex;align-items:center;gap:10px;width:100%">
-                <input class="set-check" type="checkbox" name="cooldown_${i}" data-cooldown="true"/>
-                <span class="set-toggle-label" style="min-width:32px;font-size:11px">${i+1}</span>
-                <span style="font-size:13px;color:var(--text-2);flex:1">${escapeHtml(c)}</span>
+              <label style="display:flex;align-items:center;gap:12px;cursor:pointer;padding:9px 12px;background:var(--surface-2);border:1px solid rgba(157,124,244,.15);border-radius:10px">
+                <input type="checkbox" name="cooldown_${i}" style="width:16px;height:16px;accent-color:var(--purple);flex-shrink:0"/>
+                <span style="font-size:13px;color:var(--text-2);line-height:1.4">${escapeHtml(c)}</span>
               </label>
             `).join("")}
           </div>
@@ -2431,6 +2511,43 @@
                   <h3>👁 Published Plan Preview</h3>
                   <div style="margin-top:14px">${renderPlan(detail.plan)}</div>
                 </div>
+                <div class="card">
+                  <div class="toolbar" style="margin-bottom:12px">
+                    <h3>🏠 Household Meal Sharing</h3>
+                    <button class="ghost-btn" id="link-household" style="font-size:12px">+ Link Household Member</button>
+                  </div>
+                  ${detail.householdMembers?.length ? `
+                    <div style="margin-bottom:12px">
+                      <div style="font-size:12px;color:var(--text-3);margin-bottom:8px;font-family:'JetBrains Mono',monospace">Sharing meals with</div>
+                      <div class="grid" style="gap:8px">
+                        ${detail.householdMembers.map(m => `
+                          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--surface-3);border:1px solid var(--border);border-radius:10px">
+                            <div>
+                              <div style="font-weight:700;font-size:13.5px">${escapeHtml(m.full_name)}</div>
+                              <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-3)">@${escapeHtml(m.username || "")}</div>
+                            </div>
+                            <button class="ghost-btn danger unlink-household" data-client-id="${detail.client.id}" style="padding:6px 12px;font-size:11px">Unlink</button>
+                          </div>
+                        `).join("")}
+                      </div>
+                    </div>
+                    <div style="padding:11px 14px;background:rgba(0,203,168,.07);border:1px solid rgba(0,203,168,.2);border-radius:10px;font-size:12px;line-height:1.7">
+                      <div style="color:var(--teal);font-weight:700;margin-bottom:4px">✅ Household meal sharing active</div>
+                      <div style="color:var(--text-2)">
+                        ${detail.client.household_id?.endsWith(":base")
+                          ? `<strong style="color:var(--text)">${escapeHtml(detail.client.full_name)}</strong> is the <span style="color:var(--gold)">base member</span> — their meal dishes are used as the reference. Others' plans align to these dishes with scaled portions.`
+                          : `Meals align to the base member's plan. Portions are scaled to ${escapeHtml(detail.client.full_name)}'s calorie target.`
+                        }
+                      </div>
+                      <div style="color:var(--text-3);margin-top:6px;font-size:11px">Regenerate this client's plan to apply household meal alignment through all 3 agents.</div>
+                    </div>
+                  ` : `
+                    <div class="empty" style="padding:20px;text-align:left">
+                      <div style="font-size:13px;color:var(--text-2);margin-bottom:8px">No household linked yet.</div>
+                      <div style="font-size:12px;color:var(--text-3);line-height:1.6">Link another client to share meal plans — same dishes cooked together, portions scaled to each person's calorie target. Agents will enforce meal alignment when generating plans.</div>
+                    </div>
+                  `}
+                </div>
                 <div class="split">
                   <div class="card">
                     <h3>📅 Recent Daily Logs</h3>
@@ -2672,7 +2789,15 @@
                   <div class="client-panel-eyebrow">Diet Log</div>
                   <h3 style="margin-top:4px">Today's Meals</h3>
                   <div class="exercise-history-meta" id="autosave-status" style="margin-top:5px">${state.autoSaveStatus || "Changes auto-save while you type."}</div>
-                  <div class="subtle" style="margin-top:4px;margin-bottom:14px">Macros auto-calculate from your meal selections.</div>
+                  ${app.householdScale ? `
+                    <div style="margin-top:8px;padding:10px 12px;background:rgba(0,203,168,.08);border:1px solid rgba(0,203,168,.2);border-radius:10px;font-size:12px;color:var(--teal);line-height:1.6">
+                      🏠 <strong>Shared family meals</strong> — same dishes as ${escapeHtml(app.householdScale.memberName)}.
+                      Your portion: <strong>${app.householdScale.scale}x</strong>
+                      (${app.householdScale.myTarget} kcal vs their ${app.householdScale.theirTarget} kcal target).
+                      Serve yourself proportionally smaller or larger.
+                    </div>
+                  ` : ""}
+                  <div class="subtle" style="margin-top:8px;margin-bottom:14px">Macros auto-calculate from your meal selections.</div>
                   <div class="grid">
                     <label><span>Date</span><input name="logDate" value="${dailyLog.log_date || today}" required/></label>
                     <label><span>🌅 Breakfast</span>${renderMealSelect("breakfast", breakfastSection, dailyLog.meals_json?.breakfast || "")}</label>
@@ -2852,6 +2977,11 @@
         if(unpublish) unpublish.onclick = () => publishPlan(clientId, false);
         document.getElementById("export-client").onclick = () => exportSheets(clientId);
         document.getElementById("delete-client").onclick = () => deleteClient(clientId, state.adminClientDetail.client.full_name);
+        const linkHouseholdBtn = document.getElementById("link-household");
+        if(linkHouseholdBtn) linkHouseholdBtn.onclick = () => showHouseholdLinkModal(clientId);
+        document.querySelectorAll(".unlink-household").forEach(btn => {
+          btn.onclick = () => linkHousehold(btn.dataset.clientId, null);
+        });
         const planEditForm = document.getElementById("plan-edit-form");
         if(planEditForm){
           planEditForm.oninput = () => collectPlanEditForm();
