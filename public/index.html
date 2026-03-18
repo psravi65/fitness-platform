@@ -735,6 +735,8 @@
       selectedClient: null,
       adminClientDetail: null,
       appData: null,
+      superadminData: null,
+      superadminGymDetail: null,
       loading: false,
       message: "",
       error: "",
@@ -848,7 +850,9 @@
         return false;
       }
       if(role && state.me.role !== role){
-        setRoute(state.me.role === "admin" ? "/admin" : "/app");
+        if(state.me.role === "superadmin") setRoute("/superadmin");
+        else if(state.me.role === "admin") setRoute("/admin");
+        else setRoute("/app");
         return false;
       }
       return true;
@@ -879,7 +883,17 @@
       const path = state.route;
       if(path === "/login") return;
       if(state.me?.mustChangePassword) return;
-      if(path.startsWith("/admin")){
+      if(path.startsWith("/superadmin")){
+        if(!requireAuth("superadmin")) return;
+        const gymMatch = path.match(/^\/superadmin\/gyms\/([^/]+)$/);
+        if(gymMatch){
+          state.superadminGymDetail = await api("/api/superadmin/gyms/" + gymMatch[1], { method: "GET", headers: {} });
+          state.superadminData = null;
+        } else {
+          state.superadminData = await api("/api/superadmin/gyms", { method: "GET", headers: {} });
+          state.superadminGymDetail = null;
+        }
+      } else if(path.startsWith("/admin")){
         if(!requireAuth("admin")) return;
         state.clients = (await api("/api/admin/clients", { method: "GET", headers: {} })).clients;
         const match = path.match(/^\/admin\/clients\/([^/]+)$/);
@@ -916,7 +930,11 @@
         });
         state.me = res.user;
         setFlash("Logged in.");
-        setRoute(state.me.mustChangePassword ? "/app/password" : (state.me.role === "admin" ? "/admin" : "/app"));
+        const dest = state.me.mustChangePassword ? "/app/password"
+          : state.me.role === "superadmin" ? "/superadmin"
+          : state.me.role === "admin" ? "/admin"
+          : "/app";
+        setRoute(dest);
       }catch(err){
         setFlash(err.message, true);
       }
@@ -930,12 +948,54 @@
           method: "POST",
           body: JSON.stringify({
             username: form.get("username"),
-            password: form.get("password")
+            password: form.get("password"),
+            superadmin: form.get("superadmin") === "on"
           })
         });
-        setFlash("Admin created. You can log in now.");
+        setFlash("Account created. You can log in now.");
         state.needsAdminBootstrap = false;
         render();
+      }catch(err){
+        setFlash(err.message, true);
+      }
+    }
+
+    async function createGym(ev){
+      ev.preventDefault();
+      const form = new FormData(ev.target);
+      const btn = ev.target.querySelector('button[type="submit"]');
+      const orig = btn ? btn.textContent : "";
+      if(btn){ btn.disabled = true; btn.textContent = "Creating…"; }
+      try{
+        const res = await api("/api/superadmin/gyms", {
+          method: "POST",
+          body: JSON.stringify({
+            gymName: form.get("gymName"),
+            ownerName: form.get("ownerName"),
+            email: form.get("email"),
+            phone: form.get("phone"),
+            city: form.get("city"),
+            adminUsername: form.get("adminUsername")
+          })
+        });
+        state.draftPassword = res.temporaryPassword;
+        setFlash("Gym created. Save the admin password now.");
+        await bootstrapForRoute();
+      }catch(err){
+        if(btn){ btn.disabled = false; btn.textContent = orig; }
+        setFlash(err.message, true);
+      }
+    }
+
+    async function toggleGymStatus(gymId, currentStatus){
+      const newStatus = currentStatus === "active" ? "suspended" : "active";
+      try{
+        await api("/api/superadmin/gyms/" + gymId, {
+          method: "PATCH",
+          body: JSON.stringify({ status: newStatus })
+        });
+        setFlash(`Gym ${newStatus}.`);
+        await bootstrapForRoute();
       }catch(err){
         setFlash(err.message, true);
       }
@@ -1311,13 +1371,14 @@
       try{
         const res = await api("/api/admin/clients/all-for-household", { method: "GET", headers: {} });
         const others = (res.clients || []).filter(c => c.id !== clientId);
-        if(!others.length){ setFlash("No other clients to link.", true); return; }
-
-        // Step 1: Pick the household member
+        if(!others.length){
+          setFlash("No other clients to link.", true);
+          return;
+        }
+        const options = others.map(c => `${c.full_name} (@${c.username})`).join("\n");
         const choice = window.prompt(
-          "Step 1 of 2 — Which client to link as household member?\n\n" +
-          others.map((c,i) => `${i+1}. ${c.full_name} (@${c.username || ""})`).join("\n") +
-          "\n\nEnter number or name:"
+          "Enter the full name or username of the client to link as household member:\n\n" +
+          others.map((c,i) => `${i+1}. ${c.full_name} (@${c.username})`).join("\n")
         );
         if(!choice) return;
         const idx = parseInt(choice) - 1;
@@ -1326,48 +1387,18 @@
           (c.username || "").toLowerCase().includes(choice.toLowerCase())
         );
         if(!picked){ setFlash("Client not found.", true); return; }
-
-        // Step 2: Ask whose meals to base the household on
-        const currentClient = state.adminClientDetail?.client;
-        const baseChoice = window.prompt(
-          "Step 2 of 2 — Whose meal plan should be used as the BASE for the household?\n\n" +
-          "The other person's meals will be aligned to match the base person's dishes,\n" +
-          "with portions scaled to their own calorie target.\n\n" +
-          `1. ${currentClient?.full_name || "Current client"} (being viewed now)\n` +
-          `2. ${picked.full_name}\n\n` +
-          "Enter 1 or 2:"
-        );
-        if(!baseChoice) return;
-        const baseMemberId = baseChoice.trim() === "2" ? picked.id : clientId;
-
-        // Link both clients to same household, marking the base
-        const householdId = picked.household_id?.replace(":base","") || "new";
-        const resolvedId = householdId === "new" ? null : householdId;
-
-        // Link current client
-        await api("/api/admin/clients/" + clientId + "/household", {
-          method: "POST",
-          body: JSON.stringify({
-            householdId: resolvedId || "new",
-            markAsBase: baseMemberId === clientId
-          })
-        });
-
-        // Re-fetch to get the actual household_id assigned
-        const updated = await api("/api/admin/clients/" + clientId, { method: "GET", headers: {} });
-        const newHouseholdId = (updated.client?.household_id || "").replace(":base","");
-
-        // Link the other client to same household
-        await api("/api/admin/clients/" + picked.id + "/household", {
-          method: "POST",
-          body: JSON.stringify({
-            householdId: newHouseholdId,
-            markAsBase: baseMemberId === picked.id
-          })
-        });
-
-        setFlash(`Household linked. Base meals: ${baseMemberId === clientId ? currentClient?.full_name : picked.full_name}. Regenerate both plans for full alignment.`);
-        await bootstrapForRoute();
+        // Use existing household_id or create new one
+        const householdId = picked.household_id || "new";
+        await linkHousehold(clientId, householdId);
+        // Also link the other client to the same household
+        const detail = state.adminClientDetail;
+        const myHouseholdId = detail?.client?.household_id;
+        if(myHouseholdId && myHouseholdId !== "new"){
+          await api("/api/admin/clients/" + picked.id + "/household", {
+            method: "POST",
+            body: JSON.stringify({ householdId: myHouseholdId })
+          });
+        }
       }catch(err){
         setFlash(err.message, true);
       }
@@ -1782,11 +1813,8 @@
       return `
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;padding:10px 14px;background:var(--surface-2);border-radius:10px;border-left:3px solid ${overallColor}">
           <div style="font-size:13px;font-weight:700;color:${overallColor}">${statusLabel[reviews.overallStatus] || reviews.overallStatus}</div>
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <div style="font-size:11px;color:var(--text-3);font-family:'JetBrains Mono',monospace">
-              ${reviews.refinedFrom ? "Post-refinement review" : "Agent review"} · ${reviews.pipelineRunAt ? reviews.pipelineRunAt.slice(0,10) : "today"}
-            </div>
-            ${reviews.householdAware ? `<div style="font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--teal);background:rgba(0,203,168,.1);border:1px solid rgba(0,203,168,.2);padding:2px 8px;border-radius:999px">🏠 Household-aware</div>` : ""}
+          <div style="font-size:11px;color:var(--text-3);font-family:'JetBrains Mono',monospace">
+            ${reviews.refinedFrom ? "Post-refinement review" : "Agent review"} · ${reviews.pipelineRunAt ? reviews.pipelineRunAt.slice(0,10) : "today"}
           </div>
         </div>
         ${reviews.refinedFrom ? `
@@ -2299,12 +2327,16 @@
               ${state.needsAdminBootstrap ? `
                 <div class="divider-label" style="margin:24px 0 20px">First Time Setup</div>
                 <div class="card">
-                  <h3>Create First Admin</h3>
-                  <p class="subtle" style="margin-bottom:14px">No admin exists yet. Create one to get started.</p>
+                  <h3>Create Platform Account</h3>
+                  <p class="subtle" style="margin-bottom:14px">No account exists yet. Create the app owner (superadmin) or a single gym admin.</p>
                   <form class="grid" id="bootstrap-admin-form">
-                    <label><span>Admin username</span><input name="username" required/></label>
-                    <label><span>Admin password</span><input type="password" name="password" required/></label>
-                    <button class="ghost-btn" type="submit" style="width:100%;justify-content:center">Create Admin Account</button>
+                    <label><span>Username</span><input name="username" required/></label>
+                    <label><span>Password</span><input type="password" name="password" required/></label>
+                    <label style="display:flex;align-items:center;gap:8px;margin-top:4px">
+                      <input type="checkbox" name="superadmin" style="width:16px;height:16px"/>
+                      <span style="display:inline;font-size:13px;color:var(--text);text-transform:none;letter-spacing:0">I am the app owner (superadmin — manages all gyms)</span>
+                    </label>
+                    <button class="ghost-btn" type="submit" style="width:100%;justify-content:center">Create Account</button>
                   </form>
                 </div>
               ` : ""}
@@ -2347,9 +2379,13 @@
         return;
       }
 
-      const isAdmin = state.me?.role === "admin";
+      const isSuperAdmin = state.me?.role === "superadmin";
+      const isAdmin = state.me?.role === "admin" || isSuperAdmin;
       const app = state.appData || {};
-      const nav = isAdmin ? [
+      const nav = isSuperAdmin ? [
+        ["/superadmin", "All Gyms"],
+        ...(state.superadminGymDetail ? [[state.route, "Gym Detail"]] : [])
+      ] : isAdmin ? [
         ["/admin", "Dashboard"],
         ...(state.adminClientDetail ? [[state.route, "Client Detail"]] : [])
       ] : [
@@ -2362,7 +2398,121 @@
 
       let content = "";
 
-      if(isAdmin){
+      /* ─── SUPERADMIN DASHBOARD ─── */
+      if(isSuperAdmin){
+        const sd = state.superadminData;
+        const gymDetail = state.superadminGymDetail;
+
+        if(gymDetail){
+          // ── Gym detail view ──
+          const gym = gymDetail.gym;
+          const clients = gymDetail.clients || [];
+          const admin = gymDetail.admin;
+          content = `
+            <div class="panel">
+              <div class="toolbar">
+                <div>
+                  <div class="section-eyebrow">Gym Detail</div>
+                  <div class="section-title">${escapeHtml(gym.name)}</div>
+                  <div class="section-sub">${escapeHtml(gym.city || "")}${gym.city && gym.owner_name ? " · " : ""}${escapeHtml(gym.owner_name)} · <span class="pill ${gym.status === 'active' ? 'active' : 'alert'}">${gym.status}</span></div>
+                </div>
+                <div class="inline">
+                  <button class="ghost-btn ${gym.status === 'active' ? 'danger' : 'teal'}" id="toggle-gym-status" data-gym-id="${gym.id}" data-status="${gym.status}">
+                    ${gym.status === 'active' ? 'Suspend Gym' : '✓ Reactivate Gym'}
+                  </button>
+                </div>
+              </div>
+              ${flash}
+              <div class="grid cols-3" style="margin-top:20px">
+                <div class="stat-card"><div class="stat-icon">👥</div><div class="stat-value">${clients.length}</div><div class="stat-name">Total Clients</div></div>
+                <div class="stat-card"><div class="stat-icon">📋</div><div class="stat-value">${clients.filter(c => c.plan_status === 'published').length}</div><div class="stat-name">Active Plans</div></div>
+                <div class="stat-card"><div class="stat-icon">👤</div><div class="stat-value" style="font-size:18px">${escapeHtml(admin?.username || "—")}</div><div class="stat-name">Gym Admin</div></div>
+              </div>
+              <div class="card" style="margin-top:16px">
+                <h3>👥 Clients (${clients.length})</h3>
+                ${clients.length ? `
+                  <table class="table" style="margin-top:10px">
+                    <thead><tr><th>Client</th><th>Status</th><th>Plan</th><th>Last Log</th></tr></thead>
+                    <tbody>
+                      ${clients.map(c => `
+                        <tr>
+                          <td><div class="name">${escapeHtml(c.full_name)}</div><div class="username">@${escapeHtml(c.username || "")}</div></td>
+                          <td><span class="pill active">${c.status}</span></td>
+                          <td><span class="pill ${c.plan_status === 'published' ? 'published' : c.plan_status === 'draft' ? 'draft' : 'none'}">${c.plan_status || "none"}</span></td>
+                          <td style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-3)">${c.last_log_date || "—"}</td>
+                        </tr>
+                      `).join("")}
+                    </tbody>
+                  </table>
+                ` : '<div class="empty">No clients yet for this gym.</div>'}
+              </div>
+            </div>
+          `;
+        } else {
+          // ── All gyms overview ──
+          const gyms = sd?.gyms || [];
+          const stats = sd?.stats || {};
+          content = `
+            <div class="panel">
+              <div class="toolbar">
+                <div>
+                  <div class="section-eyebrow">Platform Overview</div>
+                  <div class="section-title">All Gyms</div>
+                  <div class="section-sub">You are the app owner. Only you can see this view.</div>
+                </div>
+              </div>
+              ${flash}
+              <div class="grid cols-3" style="margin-top:20px">
+                <div class="stat-card"><div class="stat-icon">🏢</div><div class="stat-value">${stats.totalGyms || 0}</div><div class="stat-name">Total Gyms</div></div>
+                <div class="stat-card"><div class="stat-icon">👥</div><div class="stat-value">${stats.totalClients || 0}</div><div class="stat-name">Total Clients</div></div>
+                <div class="stat-card"><div class="stat-icon">📋</div><div class="stat-value">${stats.totalActivePlans || 0}</div><div class="stat-name">Active Plans</div></div>
+              </div>
+              <div class="split" style="margin-top:20px">
+                <div class="card">
+                  <h3>🏢 Gyms</h3>
+                  ${gyms.length ? `
+                    <table class="table" style="margin-top:10px">
+                      <thead><tr><th>Gym</th><th>Owner</th><th>Clients</th><th>Plans</th><th>Status</th><th></th></tr></thead>
+                      <tbody>
+                        ${gyms.map(g => `
+                          <tr>
+                            <td><div class="name">${escapeHtml(g.name)}</div><div class="username">${escapeHtml(g.city || "")}</div></td>
+                            <td style="font-size:13px">${escapeHtml(g.owner_name)}</td>
+                            <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--teal)">${g.client_count || 0}</td>
+                            <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--lime)">${g.active_plans || 0}</td>
+                            <td><span class="pill ${g.status === 'active' ? 'active' : 'alert'}">${g.status}</span></td>
+                            <td><button class="ghost-btn open-gym" data-gym-id="${g.id}" style="padding:7px 12px;font-size:12px">View →</button></td>
+                          </tr>
+                        `).join("")}
+                      </tbody>
+                    </table>
+                  ` : '<div class="empty" style="margin-top:12px">No gyms yet. Add the first one below.</div>'}
+                </div>
+                <div class="card">
+                  <h3>➕ Add New Gym</h3>
+                  <form class="grid" id="create-gym-form" style="margin-top:8px">
+                    <label><span>Gym name</span><input name="gymName" required placeholder="e.g. FitZone Gym"/></label>
+                    <label><span>Owner name</span><input name="ownerName" required placeholder="e.g. Rahul Sharma"/></label>
+                    <div class="grid cols-2">
+                      <label><span>City</span><input name="city" placeholder="e.g. Chennai"/></label>
+                      <label><span>Phone</span><input name="phone" placeholder="e.g. 9876543210"/></label>
+                    </div>
+                    <label><span>Owner email</span><input name="email" type="email" placeholder="e.g. rahul@fitzong.com"/></label>
+                    <label><span>Admin username</span><input name="adminUsername" required placeholder="e.g. fitzong.admin"/></label>
+                    <button class="action-btn" type="submit">Create Gym</button>
+                  </form>
+                  ${state.draftPassword ? `
+                    <div class="temp-password-box">
+                      <div class="temp-password-label">⚡ Gym Admin Temporary Password — save this now</div>
+                      <div class="temp-password-value">${escapeHtml(state.draftPassword)}</div>
+                    </div>
+                  ` : ""}
+                </div>
+              </div>
+            </div>
+          `;
+        }
+      } else if(isAdmin){
         /* ─── ADMIN DASHBOARD ─── */
         if(path === "/admin"){
           const review = reviewSummary(state.clients);
@@ -2531,21 +2681,9 @@
                         `).join("")}
                       </div>
                     </div>
-                    <div style="padding:11px 14px;background:rgba(0,203,168,.07);border:1px solid rgba(0,203,168,.2);border-radius:10px;font-size:12px;line-height:1.7">
-                      <div style="color:var(--teal);font-weight:700;margin-bottom:4px">✅ Household meal sharing active</div>
-                      <div style="color:var(--text-2)">
-                        ${detail.client.household_id?.endsWith(":base")
-                          ? `<strong style="color:var(--text)">${escapeHtml(detail.client.full_name)}</strong> is the <span style="color:var(--gold)">base member</span> — their meal dishes are used as the reference. Others' plans align to these dishes with scaled portions.`
-                          : `Meals align to the base member's plan. Portions are scaled to ${escapeHtml(detail.client.full_name)}'s calorie target.`
-                        }
-                      </div>
-                      <div style="color:var(--text-3);margin-top:6px;font-size:11px">Regenerate this client's plan to apply household meal alignment through all 3 agents.</div>
-                    </div>
+                    <div class="notice success" style="font-size:12px">✅ Same meals will be suggested. Portions scale to each person's calorie target automatically.</div>
                   ` : `
-                    <div class="empty" style="padding:20px;text-align:left">
-                      <div style="font-size:13px;color:var(--text-2);margin-bottom:8px">No household linked yet.</div>
-                      <div style="font-size:12px;color:var(--text-3);line-height:1.6">Link another client to share meal plans — same dishes cooked together, portions scaled to each person's calorie target. Agents will enforce meal alignment when generating plans.</div>
-                    </div>
+                    <div class="empty" style="padding:20px">No household linked. Link another client to share meal plans — same dishes, scaled portions per person.</div>
                   `}
                 </div>
                 <div class="split">
@@ -2900,12 +3038,15 @@
       }
 
       /* ─── SHELL WRAPPER ─── */
+      const eyebrow = isSuperAdmin ? "App Owner · Superadmin" : "Admin Console";
+      const title = isSuperAdmin ? "GymLog Platform" : "Fitness Platform";
+
       root.innerHTML = isAdmin ? `
         <div class="app-shell">
           <div class="topbar">
             <div class="brand">
-              <div class="brand-eyebrow">Admin Console</div>
-              <h1>Fitness Platform</h1>
+              <div class="brand-eyebrow">${eyebrow}</div>
+              <h1>${title}</h1>
               <div class="brand-sub">Signed in as <strong>${state.me?.username || ""}</strong></div>
             </div>
             <div class="top-actions">
@@ -2916,7 +3057,7 @@
             <aside class="sidebar">
               <div class="sidebar-label">Navigation</div>
               <nav>
-                ${nav.map(([href, label]) => `<button class="nav-btn ${path === href ? "active" : ""}" data-nav="${href}"><span class="nav-icon">${href === "/admin" ? "⬡" : "◈"}</span>${label}</button>`).join("")}
+                ${nav.map(([href, label]) => `<button class="nav-btn ${path === href ? "active" : ""}" data-nav="${href}"><span class="nav-icon">${href.startsWith("/superadmin") ? "◆" : href === "/admin" ? "⬡" : "◈"}</span>${label}</button>`).join("")}
               </nav>
             </aside>
             <main>${content}</main>
@@ -2955,7 +3096,17 @@
       const logoutBtn = document.getElementById("logout-btn");
       if(logoutBtn) logoutBtn.onclick = logout;
 
-      if(isAdmin && path === "/admin"){
+      if(isSuperAdmin && path === "/superadmin"){
+        const createGymForm = document.getElementById("create-gym-form");
+        if(createGymForm) createGymForm.onsubmit = createGym;
+        document.querySelectorAll(".open-gym").forEach(btn => btn.onclick = () => setRoute("/superadmin/gyms/" + btn.dataset.gymId));
+      }
+      if(isSuperAdmin && state.superadminGymDetail){
+        const toggleBtn = document.getElementById("toggle-gym-status");
+        if(toggleBtn) toggleBtn.onclick = () => toggleGymStatus(toggleBtn.dataset.gymId, toggleBtn.dataset.status);
+      }
+
+      if(isAdmin && !isSuperAdmin && path === "/admin"){
         document.getElementById("create-client-form").onsubmit = createClient;
         document.getElementById("export-all").onclick = () => exportSheets(null);
         document.querySelectorAll(".open-client").forEach(btn => btn.onclick = () => setRoute("/admin/clients/" + btn.dataset.clientId));
