@@ -205,7 +205,9 @@ async function handleApi(request, env, ctx, url) {
     const progressContext = await getProgressContext(env, clientId);
     const normalized = await generatePlanFromIntake(env, intake.answers_json, progressContext);
     const agentReviews = await runAgentPipeline(env, intake.answers_json, normalized);
-    await saveDraftPlan(env, clientId, intake.id, normalized, agentReviews);
+    // Feed agent feedback back to Gemini for a refined final plan
+    const finalPlan = await refinePlanWithAgentFeedback(env, intake.answers_json, normalized, agentReviews, progressContext);
+    await saveDraftPlan(env, clientId, intake.id, finalPlan, agentReviews);
     return json({ ok: true });
   }
 
@@ -661,6 +663,131 @@ overall plan coherence — nutrition and training aligned toward the same goal.
 Be specific and constructive. Score 1-10 where 10 is perfect.
 Status rules: approved = well-structured evidence-based plan, needs_attention = missing some science principles, flagged = poor structure that will limit results.`;
   return callGeminiAgent(env, "sportsScientist", systemPrompt, plan, intake);
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  AGENT FEEDBACK REFINEMENT
+//  Takes the agent reviews and feeds them back to Gemini
+//  to produce an improved final plan.
+// ═══════════════════════════════════════════════════════════════
+
+async function refinePlanWithAgentFeedback(env, intake, draftPlan, agentReviews, progressContext = {}) {
+  if (!env.GEMINI_API_KEY) return draftPlan;
+
+  // If all agents approved and no issues found, skip refinement — plan is already good
+  const allApproved = agentReviews.overallStatus === "approved";
+  const hasIssues = [agentReviews.nutritionist, agentReviews.fitnessExpert, agentReviews.sportsScientist]
+    .some(r => r?.issues?.length > 0 || r?.suggestions?.length > 0);
+
+  if (allApproved && !hasIssues) {
+    return normalizePlan(draftPlan, intake, {
+      ...draftPlan.generationMeta,
+      refined: false,
+      refinementReason: "All agents approved with no issues — no refinement needed."
+    });
+  }
+
+  // Compile all agent feedback into a clear list
+  const feedbackLines = [];
+
+  const agents = [
+    { key: "nutritionist",    label: "Nutritionist" },
+    { key: "fitnessExpert",   label: "Fitness Expert" },
+    { key: "sportsScientist", label: "Sports Scientist" }
+  ];
+
+  for (const agent of agents) {
+    const r = agentReviews[agent.key];
+    if (!r) continue;
+    if (r.issues?.length) {
+      feedbackLines.push(`${agent.label} Issues:`);
+      r.issues.forEach(i => feedbackLines.push(`  - ${i}`));
+    }
+    if (r.suggestions?.length) {
+      feedbackLines.push(`${agent.label} Suggestions:`);
+      r.suggestions.forEach(s => feedbackLines.push(`  - ${s}`));
+    }
+  }
+
+  const refinementPrompt = [
+    "You are a fitness coaching expert refining a plan based on specialist review feedback.",
+    "You will be given: (1) the original client intake, (2) a draft plan, (3) feedback from three specialists.",
+    "Your job is to fix EVERY issue and apply EVERY suggestion listed in the feedback.",
+    "Return an improved plan in the EXACT same JSON structure as the draft plan.",
+    "Return JSON only — no prose, no markdown.",
+    "Use this exact shape:",
+    JSON.stringify({
+      profileSummary: "string",
+      calorieTarget: "string",
+      macros: { protein: "string", carbs: "string", fat: "string" },
+      mealOptions: [{ meal: "Breakfast", options: [{ label: "opt1", calories: 450, protein: 35, carbs: 50, fat: 12 }] }],
+      weeklyMealStructure: ["Mon - ..."],
+      supplements: ["item"],
+      workoutSplit: [{ day: "Day 1", exercises: ["exercise"] }],
+      progressMilestones: ["milestone"],
+      successRules: ["rule"],
+      cautions: ["caution"]
+    }),
+    "CLIENT INTAKE:",
+    JSON.stringify(intake),
+    "DRAFT PLAN TO IMPROVE:",
+    JSON.stringify(draftPlan),
+    "SPECIALIST FEEDBACK TO ADDRESS:",
+    feedbackLines.join("\n"),
+    "RECENT PROGRESS CONTEXT:",
+    JSON.stringify(buildProgressSummary(progressContext))
+  ].join("\n");
+
+  try {
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL || "gemini-2.5-flash"}:generateContent?key=${env.GEMINI_API_KEY}`;
+    const res = await fetch(apiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: refinementPrompt }] }],
+        generationConfig: { responseMimeType: "application/json" }
+      })
+    });
+
+    if (!res.ok) {
+      // Refinement failed — fall back to original draft
+      return normalizePlan(draftPlan, intake, {
+        ...draftPlan.generationMeta,
+        refined: false,
+        refinementReason: `Refinement API call failed with HTTP ${res.status} — using original draft.`
+      });
+    }
+
+    const data = await res.json();
+    const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("") || "";
+    const parsed = safeJson(text, null);
+
+    if (!parsed || typeof parsed !== "object") {
+      return normalizePlan(draftPlan, intake, {
+        ...draftPlan.generationMeta,
+        refined: false,
+        refinementReason: "Refinement returned invalid JSON — using original draft."
+      });
+    }
+
+    return normalizePlan(parsed, intake, {
+      source: "gemini",
+      reason: "Plan refined based on agent feedback.",
+      model: env.GEMINI_MODEL || "gemini-2.5-flash",
+      generatedAt: nowIso(),
+      refined: true,
+      refinementReason: `Applied feedback from ${feedbackLines.length} specialist notes.`,
+      issuesAddressed: feedbackLines.length
+    });
+
+  } catch (err) {
+    return normalizePlan(draftPlan, intake, {
+      ...draftPlan.generationMeta,
+      refined: false,
+      refinementReason: `Refinement error: ${err.message} — using original draft.`
+    });
+  }
 }
 
 async function runAgentPipeline(env, intake, plan) {
