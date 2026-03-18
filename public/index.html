@@ -1450,13 +1450,25 @@
             </div>
             <div class="card plan-section">
               <h3>🏋️ Training</h3>
-              ${(data.workoutSplit || []).map(day => `<div style="margin-bottom:10px"><div class="plan-section-head">${day.day}</div><div class="plan-list">${day.exercises.map(ex => `<div class="plan-list-item">${ex}</div>`).join("")}</div></div>`).join("")}
+              ${(data.workoutSplit || []).map(day => `
+                <div style="margin-bottom:14px">
+                  <div class="plan-section-head">${day.day}</div>
+                  ${day.warmup?.length ? `<div style="margin-bottom:6px"><div style="font-size:10px;color:var(--teal);font-family:'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Warm-up</div><div class="plan-list">${day.warmup.map(w => `<div class="plan-list-item" style="border-color:rgba(0,203,168,.2);background:rgba(0,203,168,.05)">🔥 ${escapeHtml(w)}</div>`).join("")}</div></div>` : ""}
+                  <div style="${day.warmup?.length ? 'margin-bottom:6px' : ''}"><div style="font-size:10px;color:var(--text-2);font-family:'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Main workout</div><div class="plan-list">${day.exercises.map(ex => `<div class="plan-list-item">${escapeHtml(ex)}</div>`).join("")}</div></div>
+                  ${day.cooldown?.length ? `<div><div style="font-size:10px;color:var(--purple);font-family:'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px">Cool-down</div><div class="plan-list">${day.cooldown.map(c => `<div class="plan-list-item" style="border-color:rgba(157,124,244,.2);background:rgba(157,124,244,.05)">❄️ ${escapeHtml(c)}</div>`).join("")}</div></div>` : ""}
+                </div>
+              `).join("")}
+              ${data.progressionProtocol ? `<div style="margin-top:12px;padding:12px;background:rgba(255,201,64,.07);border:1px solid rgba(255,201,64,.2);border-radius:10px"><div style="font-size:10px;color:var(--gold);font-family:'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px">📈 Progression Protocol</div><div style="font-size:13px;color:var(--text-2);line-height:1.6">${escapeHtml(data.progressionProtocol)}</div></div>` : ""}
             </div>
           </div>
           <div class="split">
             <div class="card"><h3>💊 Supplements</h3><div class="plan-list">${(data.supplements || []).map(item => `<div class="plan-list-item">${item}</div>`).join("")}</div></div>
             <div class="card"><h3>✅ Success Rules</h3><div class="plan-list">${(data.successRules || []).map(item => `<div class="plan-list-item">${item}</div>`).join("")}</div></div>
           </div>
+          ${(data.periodisation || data.deloadProtocol) ? `<div class="split">
+            ${data.periodisation ? `<div class="card"><div class="plan-section-head" style="color:var(--teal)">📅 Periodisation</div><p style="font-size:13px;color:var(--text-2);line-height:1.6;margin-top:6px">${escapeHtml(data.periodisation)}</p></div>` : ""}
+            ${data.deloadProtocol ? `<div class="card"><div class="plan-section-head" style="color:var(--gold)">🔄 Deload Protocol</div><p style="font-size:13px;color:var(--text-2);line-height:1.6;margin-top:6px">${escapeHtml(data.deloadProtocol)}</p></div>` : ""}
+          </div>` : ""}
         </div>
       `;
     }
@@ -1474,6 +1486,9 @@
         weeklyMealStructure: Array.isArray(plan.weeklyMealStructure) ? plan.weeklyMealStructure : [],
         supplements: Array.isArray(plan.supplements) ? plan.supplements : [],
         workoutSplit: Array.isArray(plan.workoutSplit) ? plan.workoutSplit : [],
+        periodisation: plan.periodisation || "",
+        deloadProtocol: plan.deloadProtocol || "",
+        progressionProtocol: plan.progressionProtocol || "",
         progressMilestones: Array.isArray(plan.progressMilestones) ? plan.progressMilestones : [],
         successRules: Array.isArray(plan.successRules) ? plan.successRules : [],
         cautions: Array.isArray(plan.cautions) ? plan.cautions : []
@@ -1493,7 +1508,13 @@
 
     function renderPlanEditor(plan){
       const meals = (plan.mealOptions || []).map(section => `${section.meal}: ${(section.options || []).map(formatMealOptionLine).join(" | ")}`).join("\n");
-      const workouts = (plan.workoutSplit || []).map(section => `${section.day}: ${(section.exercises || []).join(" | ")}`).join("\n");
+      const workouts = (plan.workoutSplit || []).map(section => {
+        const parts = [];
+        if (section.warmup?.length) parts.push(`[warmup] ${section.warmup.join(" | ")}`);
+        parts.push(...(section.exercises || []));
+        if (section.cooldown?.length) parts.push(`[cooldown] ${section.cooldown.join(" | ")}`);
+        return `${section.day}: ${parts.join(" | ")}`;
+      }).join("\n");
       return `
         <form class="grid" id="plan-edit-form" style="margin-top:14px">
           <label>
@@ -1530,6 +1551,9 @@
             <label><span>Success Rules</span>${renderListEditor("successRules", plan.successRules, "Protein at every meal")}</label>
             <label><span>Cautions</span>${renderListEditor("cautions", plan.cautions, "Respect injury limits")}</label>
           </div>
+          <label><span>📅 Periodisation</span><textarea name="periodisation" placeholder="e.g. 6-week linear mesocycle — Weeks 1-2 adaptation, Weeks 3-4 strength, Weeks 5-6 intensity, Week 7 deload">${escapeHtml(plan.periodisation || "")}</textarea></label>
+          <label><span>🔄 Deload Protocol</span><textarea name="deloadProtocol" placeholder="e.g. Every 5th week — reduce all weights by 50%, cut sets in half, focus on form and recovery">${escapeHtml(plan.deloadProtocol || "")}</textarea></label>
+          <label><span>📈 Progression Protocol</span><textarea name="progressionProtocol" placeholder="e.g. 2-for-2 rule — when you complete 2 extra reps on last set for 2 consecutive sessions, increase weight by 2.5kg">${escapeHtml(plan.progressionProtocol || "")}</textarea></label>
         </form>
       `;
     }
@@ -1564,7 +1588,20 @@
         mealOptions: parseSectioned(data.get("mealOptions"), "meal", "options", parseMealOptionText),
         weeklyMealStructure: parseList(data.get("weeklyMealStructure")),
         supplements: parseList(data.get("supplements")),
-        workoutSplit: parseSectioned(data.get("workoutSplit"), "day", "exercises"),
+        workoutSplit: parseSectioned(data.get("workoutSplit"), "day", "_rawExercises").map(item => {
+          const warmup = [], exercises = [], cooldown = [];
+          let mode = "exercises";
+          (item._rawExercises || []).forEach(ex => {
+            const t = ex.trim();
+            if(t.startsWith("[warmup]")) { mode = "warmup"; warmup.push(...t.replace("[warmup]","").trim().split("|").map(s=>s.trim()).filter(Boolean)); }
+            else if(t.startsWith("[cooldown]")) { mode = "cooldown"; cooldown.push(...t.replace("[cooldown]","").trim().split("|").map(s=>s.trim()).filter(Boolean)); }
+            else { exercises.push(t); }
+          });
+          return { day: item.day, warmup, exercises, cooldown };
+        }),
+        periodisation: String(data.get("periodisation") || "").trim(),
+        deloadProtocol: String(data.get("deloadProtocol") || "").trim(),
+        progressionProtocol: String(data.get("progressionProtocol") || "").trim(),
         progressMilestones: parseList(data.get("progressMilestones")),
         successRules: parseList(data.get("successRules")),
         cautions: parseList(data.get("cautions"))
@@ -1666,8 +1703,21 @@
       return `
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;padding:10px 14px;background:var(--surface-2);border-radius:10px;border-left:3px solid ${overallColor}">
           <div style="font-size:13px;font-weight:700;color:${overallColor}">${statusLabel[reviews.overallStatus] || reviews.overallStatus}</div>
-          <div style="font-size:11px;color:var(--text-3);font-family:'JetBrains Mono',monospace">Overall · reviewed ${reviews.pipelineRunAt ? reviews.pipelineRunAt.slice(0,10) : "today"}</div>
+          <div style="font-size:11px;color:var(--text-3);font-family:'JetBrains Mono',monospace">
+            ${reviews.refinedFrom ? "Post-refinement review" : "Agent review"} · ${reviews.pipelineRunAt ? reviews.pipelineRunAt.slice(0,10) : "today"}
+          </div>
         </div>
+        ${reviews.refinedFrom ? `
+          <div style="font-size:12px;color:var(--text-2);margin-bottom:14px;padding:10px 14px;background:var(--surface-3);border-radius:10px;line-height:1.6">
+            ⚡ Gemini refined the plan based on first-pass agent feedback. The scores below reflect the <strong style="color:var(--text)">improved final plan</strong>.
+            ${(() => {
+              const prev = reviews.refinedFrom;
+              const agents = ["nutritionist","fitnessExpert","sportsScientist"];
+              const improved = agents.filter(k => (reviews[k]?.score || 0) > (prev[k]?.score || 0)).length;
+              return improved > 0 ? `<div style="margin-top:4px;color:var(--lime);font-size:11px">↑ ${improved} of 3 agents gave higher scores after refinement</div>` : "";
+            })()}
+          </div>
+        ` : ""}
         <div class="grid" style="gap:12px">
           ${agents.map(agent => {
             const r = reviews[agent.key];
@@ -1679,7 +1729,8 @@
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
                   <div style="font-size:13px;font-weight:700;color:var(--text)">${agent.label}</div>
                   <div style="display:flex;align-items:center;gap:8px">
-                    <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-3)">Score ${r.score || "—"}/10</div>
+                    ${reviews.refinedFrom?.[agent.key]?.score ? `<div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-3)">${reviews.refinedFrom[agent.key].score}/10 →</div>` : ""}
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:${(reviews.refinedFrom?.[agent.key]?.score || 0) < (r.score || 0) ? 'var(--lime)' : 'var(--text-3)'}">Score ${r.score || "—"}/10</div>
                     <div style="font-size:11px;font-weight:700;color:${sc}">${sl}</div>
                   </div>
                 </div>
@@ -1870,10 +1921,40 @@
     }
 
     function renderWorkoutExerciseCards(plan, selectedWorkout, entries = {}){
+      const session = getWorkoutSession(plan, selectedWorkout);
       const exercises = getWorkoutExercises(plan, selectedWorkout);
       if(!selectedWorkout) return `<div class="empty">Select a workout to start logging sets.</div>`;
       if(!exercises.length) return `<div class="empty">No exercises found for this workout.</div>`;
-      return exercises.map((exercise) => {
+
+      const warmupHtml = session?.warmup?.length ? `
+        <div class="client-panel" style="border-color:rgba(0,203,168,.25);background:rgba(0,203,168,.04);margin-bottom:10px">
+          <div class="client-panel-eyebrow" style="color:var(--teal)">🔥 Warm-up</div>
+          <div style="margin-top:8px;display:grid;gap:6px">
+            ${session.warmup.map((w, i) => `
+              <label class="set-toggle-wrap" style="display:flex;align-items:center;gap:10px;width:100%">
+                <input class="set-check" type="checkbox" name="warmup_${i}" data-warmup="true"/>
+                <span class="set-toggle-label" style="min-width:32px;font-size:11px">${i+1}</span>
+                <span style="font-size:13px;color:var(--text-2);flex:1">${escapeHtml(w)}</span>
+              </label>
+            `).join("")}
+          </div>
+        </div>` : "";
+
+      const cooldownHtml = session?.cooldown?.length ? `
+        <div class="client-panel" style="border-color:rgba(157,124,244,.25);background:rgba(157,124,244,.04);margin-top:10px">
+          <div class="client-panel-eyebrow" style="color:var(--purple)">❄️ Cool-down</div>
+          <div style="margin-top:8px;display:grid;gap:6px">
+            ${session.cooldown.map((c, i) => `
+              <label class="set-toggle-wrap" style="display:flex;align-items:center;gap:10px;width:100%">
+                <input class="set-check" type="checkbox" name="cooldown_${i}" data-cooldown="true"/>
+                <span class="set-toggle-label" style="min-width:32px;font-size:11px">${i+1}</span>
+                <span style="font-size:13px;color:var(--text-2);flex:1">${escapeHtml(c)}</span>
+              </label>
+            `).join("")}
+          </div>
+        </div>` : "";
+
+      const exerciseCards = exercises.map((exercise) => {
         const entry = entries[exercise.id] || { sets: Array(exercise.sets).fill(false), weight: exercise.target || "" };
         const history = getExerciseHistory(state.appData?.recentWorkoutLogs, exercise.id);
         const lastWeight = history.length ? history[history.length - 1].weight : "";
@@ -1905,6 +1986,7 @@
           </div>
         `;
       }).join("");
+      return warmupHtml + exerciseCards + cooldownHtml;
     }
 
     function calcMealMacros(plan, meals){
