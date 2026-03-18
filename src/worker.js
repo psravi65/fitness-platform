@@ -204,7 +204,8 @@ async function handleApi(request, env, ctx, url) {
     if (!intake) return json({ error: "Client intake is required before generating a plan." }, 400);
     const progressContext = await getProgressContext(env, clientId);
     const normalized = await generatePlanFromIntake(env, intake.answers_json, progressContext);
-    await saveDraftPlan(env, clientId, intake.id, normalized);
+    const agentReviews = await runAgentPipeline(env, intake.answers_json, normalized);
+    await saveDraftPlan(env, clientId, intake.id, normalized, agentReviews);
     return json({ ok: true });
   }
 
@@ -419,22 +420,23 @@ function hydratePlanRow(row) {
   };
 }
 
-async function saveDraftPlan(env, clientId, intakeId, generatedPlan) {
+async function saveDraftPlan(env, clientId, intakeId, generatedPlan, agentReviews = null) {
   const existing = await getLatestPlan(env, clientId);
   const payload = JSON.stringify(generatedPlan);
+  const reviewsPayload = agentReviews ? JSON.stringify(agentReviews) : null;
   if (existing) {
     await env.DB.prepare(`
       UPDATE plans
-      SET status = 'draft', source_intake_id = ?, generated_json = ?, edited_json = NULL, published_at = NULL, updated_at = CURRENT_TIMESTAMP
+      SET status = 'draft', source_intake_id = ?, generated_json = ?, edited_json = NULL, published_at = NULL, updated_at = CURRENT_TIMESTAMP, agent_reviews_json = ?
       WHERE id = ?
-    `).bind(intakeId, payload, existing.id).run();
+    `).bind(intakeId, payload, reviewsPayload, existing.id).run();
     return existing.id;
   }
   const id = crypto.randomUUID();
   await env.DB.prepare(`
-    INSERT INTO plans (id, client_id, status, source_intake_id, generated_json)
-    VALUES (?, ?, 'draft', ?, ?)
-  `).bind(id, clientId, intakeId, payload).run();
+    INSERT INTO plans (id, client_id, status, source_intake_id, generated_json, agent_reviews_json)
+    VALUES (?, ?, 'draft', ?, ?, ?)
+  `).bind(id, clientId, intakeId, payload, reviewsPayload).run();
   return id;
 }
 
@@ -563,6 +565,117 @@ async function getProgressContext(env, clientId) {
     dailyLogs,
     checkins,
     weeklyReview: parseStoredJsonRow(weeklyReview)
+  };
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+//  AGENT REVIEW PIPELINE
+//  Three specialist agents review the Gemini-generated plan.
+//  Each agent uses a focused system prompt and returns structured JSON.
+// ═══════════════════════════════════════════════════════════════
+
+async function callGeminiAgent(env, agentName, systemPrompt, planJson, intakeJson) {
+  if (!env.GEMINI_API_KEY) {
+    return { status: "skipped", reason: "GEMINI_API_KEY not configured", issues: [], suggestions: [] };
+  }
+  const prompt = [
+    systemPrompt,
+    "INTAKE DATA:",
+    JSON.stringify(intakeJson),
+    "GENERATED PLAN:",
+    JSON.stringify(planJson),
+    "Return ONLY a JSON object in this exact shape — no prose, no markdown:",
+    JSON.stringify({
+      status: "approved | needs_attention | flagged",
+      score: "1-10 integer",
+      summary: "one sentence summary of your review",
+      issues: ["list of specific problems found, empty array if none"],
+      suggestions: ["list of specific improvements, empty array if none"]
+    })
+  ].join("\n");
+
+  try {
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL || "gemini-2.5-flash"}:generateContent?key=${env.GEMINI_API_KEY}`;
+    const res = await fetch(apiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: { responseMimeType: "application/json" }
+      })
+    });
+    if (!res.ok) {
+      return { status: "skipped", reason: `Agent API error: HTTP ${res.status}`, issues: [], suggestions: [] };
+    }
+    const data = await res.json();
+    const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("") || "";
+    const parsed = safeJson(text, null);
+    if (!parsed) {
+      return { status: "skipped", reason: "Agent returned invalid JSON", issues: [], suggestions: [] };
+    }
+    return {
+      status: parsed.status || "approved",
+      score: Number(parsed.score) || 7,
+      summary: parsed.summary || "",
+      issues: Array.isArray(parsed.issues) ? parsed.issues : [],
+      suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions : [],
+      reviewedAt: nowIso()
+    };
+  } catch (err) {
+    return { status: "skipped", reason: `Agent error: ${err.message}`, issues: [], suggestions: [] };
+  }
+}
+
+async function runNutritionistAgent(env, intake, plan) {
+  const systemPrompt = `You are a registered sports nutritionist reviewing an AI-generated fitness coaching plan.
+Your job is to validate the nutrition section ONLY — macros, calories, meal options, and diet structure.
+Focus on: calorie target vs goal and body weight, protein adequacy (minimum 1.6g/kg for muscle, 1.2g/kg for fat loss),
+meal variety and cuisine alignment with client preferences, food allergies respected, meal frequency matching client preference,
+any dangerous deficits (under 1200 kcal for women, under 1500 kcal for men).
+Be specific and constructive. Score 1-10 where 10 is perfect.
+Status rules: approved = no serious issues, needs_attention = minor fixes needed, flagged = serious nutritional problem.`;
+  return callGeminiAgent(env, "nutritionist", systemPrompt, plan, intake);
+}
+
+async function runFitnessExpertAgent(env, intake, plan) {
+  const systemPrompt = `You are a certified strength and conditioning coach (NSCA/NASM level) reviewing an AI-generated fitness plan.
+Your job is to validate the workout section ONLY — exercise selection, training split, volume, and safety.
+Focus on: training days matching client availability, exercise selection appropriate for gym access stated,
+all injuries and movement restrictions fully respected, volume appropriate for experience level (beginner vs advanced),
+compound vs isolation balance, rest day placement, warm-up and cool-down included.
+Be specific and constructive. Score 1-10 where 10 is perfect.
+Status rules: approved = no serious issues, needs_attention = minor fixes needed, flagged = unsafe or inappropriate plan.`;
+  return callGeminiAgent(env, "fitnessExpert", systemPrompt, plan, intake);
+}
+
+async function runSportsScientistAgent(env, intake, plan) {
+  const systemPrompt = `You are a sports scientist specialising in evidence-based training programme design.
+Your job is to validate the overall structure of this fitness plan — periodisation, progressive overload, and recovery science.
+Focus on: progressive overload protocol present (weekly load increases), periodisation structure (linear, undulating, or block),
+deload weeks recommended for plans over 4 weeks, recovery days adequate relative to intensity,
+milestones are measurable and realistic, success rules are evidence-based not anecdotal,
+overall plan coherence — nutrition and training aligned toward the same goal.
+Be specific and constructive. Score 1-10 where 10 is perfect.
+Status rules: approved = well-structured evidence-based plan, needs_attention = missing some science principles, flagged = poor structure that will limit results.`;
+  return callGeminiAgent(env, "sportsScientist", systemPrompt, plan, intake);
+}
+
+async function runAgentPipeline(env, intake, plan) {
+  // Run sequentially to avoid rate limits on free Gemini tier
+  const nutritionist = await runNutritionistAgent(env, intake, plan);
+  const fitnessExpert = await runFitnessExpertAgent(env, intake, plan);
+  const sportsScientist = await runSportsScientistAgent(env, intake, plan);
+  return {
+    nutritionist,
+    fitnessExpert,
+    sportsScientist,
+    pipelineRunAt: nowIso(),
+    overallStatus: [nutritionist, fitnessExpert, sportsScientist].some(a => a.status === "flagged")
+      ? "flagged"
+      : [nutritionist, fitnessExpert, sportsScientist].some(a => a.status === "needs_attention")
+        ? "needs_attention"
+        : "approved"
   };
 }
 
@@ -782,7 +895,7 @@ async function selectJsonRows(env, sql, binds) {
 function parseStoredJsonRow(row) {
   if (!row) return null;
   const out = { ...row };
-  for (const key of ["answers_json", "generated_json", "edited_json", "meals_json", "workout_json", "macros_json", "review_json"]) {
+  for (const key of ["answers_json", "generated_json", "edited_json", "meals_json", "workout_json", "macros_json", "review_json", "agent_reviews_json"]) {
     if (out[key] && typeof out[key] === "string") out[key] = safeJson(out[key], {});
   }
   return out;
