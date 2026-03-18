@@ -11,6 +11,7 @@ not_found_handling = "single-page-application"
 binding = "DB"
 database_name = "fitness-platform"
 database_id = "6769529b-ebf8-4014-9614-20f4d978f53c"
+migrations_dir = "migrations"
 
 [vars]
 APP_NAME = "Fitness Platform"
