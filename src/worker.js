@@ -978,7 +978,85 @@ async function runAgentPipeline(env, intake, plan, householdContext = null) {
         : "approved"
   };
 }
+async function refinePlanWithAgentFeedback(env, intake, plan, agentReviews, progressContext = {}, householdContext = null) {
+  if (!env.GEMINI_API_KEY) return plan;
 
+  const issues = [];
+  const suggestions = [];
+  for (const agentKey of ["nutritionist", "fitnessExpert", "sportsScientist"]) {
+    const agent = agentReviews?.[agentKey];
+    if (!agent) continue;
+    if (Array.isArray(agent.issues)) agent.issues.forEach(i => issues.push(`[${agentKey}] ${i}`));
+    if (Array.isArray(agent.suggestions)) agent.suggestions.forEach(s => suggestions.push(`[${agentKey}] ${s}`));
+  }
+
+  if (issues.length === 0 && suggestions.length === 0) return plan;
+
+  const householdInstruction = householdContext
+    ? `HOUSEHOLD MEAL ALIGNMENT — MANDATORY: This client shares all meals with ${householdContext.memberName} (calorie target: ${householdContext.theirCalorieTarget} kcal). You MUST use the EXACT SAME meal dishes as the household reference plan — only scale portions and macros to this client's calorie target.\nHOUSEHOLD REFERENCE MEALS: ${JSON.stringify(householdContext.basePlan?.mealOptions || [])}`
+    : null;
+
+  const prompt = [
+    "You are refining an AI-generated fitness coaching plan based on expert agent feedback.",
+    "Return JSON only — same structure as the original plan.",
+    "Fix the issues listed and apply the suggestions where appropriate.",
+    "Do NOT change things that are already correct.",
+    ...(householdInstruction ? [householdInstruction] : []),
+    "ISSUES TO FIX:",
+    issues.map((i, n) => `${n + 1}. ${i}`).join("\n"),
+    "SUGGESTIONS TO APPLY:",
+    suggestions.map((s, n) => `${n + 1}. ${s}`).join("\n"),
+    "ORIGINAL PLAN:",
+    JSON.stringify(plan),
+    "INTAKE DATA:",
+    JSON.stringify(intake),
+    "RECENT PROGRESS:",
+    JSON.stringify(buildProgressSummary(progressContext)),
+    "Return the refined plan in this exact shape:",
+    JSON.stringify({
+      profileSummary: "string",
+      calorieTarget: "string",
+      macros: { protein: "string", carbs: "string", fat: "string" },
+      mealOptions: [{ meal: "Breakfast", options: [{ label: "opt1", calories: 450, protein: 35, carbs: 50, fat: 12 }] }],
+      weeklyMealStructure: ["Mon - ..."],
+      supplements: ["item"],
+      workoutSplit: [{ day: "Day 1", warmup: ["5 min light cardio"], exercises: ["exercise 3x8"], cooldown: ["stretch 30s"] }],
+      periodisation: "string",
+      deloadProtocol: "string",
+      progressionProtocol: "string",
+      progressMilestones: ["milestone"],
+      successRules: ["rule"],
+      cautions: ["caution"]
+    })
+  ].join("\n");
+
+  try {
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL || "gemini-2.5-flash"}:generateContent?key=${env.GEMINI_API_KEY}`;
+    const res = await fetch(apiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: { responseMimeType: "application/json" }
+      })
+    });
+    if (!res.ok) return plan;
+    const data = await res.json();
+    const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("") || "";
+    const parsed = safeJson(text, null);
+    if (!parsed || typeof parsed !== "object") return plan;
+    return normalizePlan(parsed, intake, {
+      source: "gemini-refined",
+      reason: "Plan refined with agent feedback.",
+      model: env.GEMINI_MODEL || "gemini-2.5-flash",
+      generatedAt: nowIso(),
+      issuesAddressed: issues.length,
+      suggestionsApplied: suggestions.length
+    });
+  } catch {
+    return plan;
+  }
+}
 async function generatePlanFromIntake(env, intake, progressContext = {}, householdContext = null) {
   if (!env.GEMINI_API_KEY) {
     return fallbackPlanFromIntake(intake, {
