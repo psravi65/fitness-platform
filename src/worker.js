@@ -33,6 +33,15 @@ async function handleApi(request, env, ctx, url) {
     return json({ user: sanitizeUser(session.user) });
   }
 
+  // PWA icon — PNG files
+  if (url.pathname === "/icon-192.png" || url.pathname === "/icon-512.png") {
+    const b64 = url.pathname.includes("512") ? "iVBORw0KGgoAAAANSUhEUgAAAgAAAAIACAIAAAB7GkOtAAAHXElEQVR4nO3VMQ3AMBAEQRMwj4AKfxoxiBQva+c0AK7btc3MLLk1fcDMzGYmAGZm0QmAmVl0AmBmFp0AmJlFJwBmZtEJgJlZdAJgZhadAJiZRScAZmbRCYCZWXQCYGYWnQCYmUUnAGZm0QmAmVl0AmBmFp0AmJlFJwBmZtEJgJlZdAJgZhbd3wB87wPAFAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgCgBAIgSAIAoAQCIEgCAKAEAiBIAgKjJAJiZ2aUTADOz6ATAzCw6ATAzi04AzMyiEwAzs+gEwMwsOgEwM4tOAMzMohMAM7PoBMDMLDoBMDOLTgDMzKITADOz6ATAzCw6ATAzi04AzMyiEwAzs+gEwMwsOgEwM4vuAMG9S0cdHjORAAAAAElFTkSuQmCC" : "iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAIAAADdvvtQAAACBUlEQVR4nO3SMQ3AMBAEQRMIj4AyfxoJiC1eluc0AK7Y9ZiFrekDdvYEZGkCsjQBWZqALE1AliYgSxOQpQnI0gRkaQKyNAFZmoAsTUCWJiBLE5ClCcjSBGRpArI0AVlaDejbL6cTEImASAREIiASAZEIiERAJAIiERCJgEgERCIgEgGRCIhEQCQCIhEQiYBIBEQiIBIBkQiIREAkAiIREImASAREIiASAZEIiERAJAIiERCJgEgERCIgEgGRCIhEQCQCIhEQiYBIBEQiIBIBkQiIREAkAiIREImASAREIiASAZEIiERAJAIiERCJgEgERCIgEgGRCIhEQCQCIhEQiYBIBEQiIBIBkQiIREAkAiIREImASAREIiASAZEIiERAJAIiERCJgEgERCIgEgGRCIhEQCQCIhEQiYBIBEQiIBIBkQiIREAkAiIREImASAREIiASAZEIiERAJAIiERCJgEgERCIgEgGRCIhEQCQCIhEQiYBIBEQiIBIBkQiIREAkAiIREImASAREIiASAZEIiERAJAIiERCJgEgERCIgEgGRCIhEQCQCIhEQiYBIBEQiIBIBkQiIREAkAiIREImASAREIiASAZEIiGQyILt8ArI0AVmagCxNQJYmIEsTkKUJyNIEZGkCsjQBWZqALE1AliYgSxOQpQnI0gRkaQKyNAFZmoAs7QcrjAt+HnEs1AAAAABJRU5ErkJggg==";
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for(let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new Response(bytes.buffer, { headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400" } });
+  }
+
   // PWA manifest
   if (url.pathname === "/manifest.json") {
     return new Response(JSON.stringify({
@@ -43,14 +52,12 @@ async function handleApi(request, env, ctx, url) {
       display: "standalone",
       background_color: "#0d0d0d",
       theme_color: "#FF5C28",
-      orientation: "portrait",
-      icons: [{
-        src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%23FF5C28'/%3E%3Ctext y='.9em' font-size='80' x='10'%3E%F0%9F%94%A5%3C/text%3E%3C/svg%3E",
-        sizes: "any",
-        type: "image/svg+xml",
-        purpose: "any maskable"
-      }]
-    }), { headers: { "Content-Type": "application/manifest+json" } });
+      orientation: "portrait-primary",
+      icons: [
+        { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any maskable" },
+        { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" }
+      ]
+    }), { headers: { "Content-Type": "application/manifest+json", "Cache-Control": "no-cache" } });
   }
 
   if (url.pathname === "/api/bootstrap-admin-check" && method === "GET") {
@@ -133,21 +140,15 @@ async function handleApi(request, env, ctx, url) {
   //  SUPERADMIN ROUTES — app owner only
   // ═══════════════════════════════════════════════════════════
 
-  // Auto-suspend expired trial gyms
   if (url.pathname === "/api/superadmin/gyms" && method === "GET") {
     assertRole(session, "superadmin");
-    await env.DB.prepare(`
-      UPDATE gyms SET status = 'suspended'
-      WHERE plan_tier = 'trial' AND trial_ends_at < datetime('now') AND status = 'active'
-    `).run();
     const gyms = await env.DB.prepare(`
       SELECT gyms.*,
         COUNT(DISTINCT clients.id) AS client_count,
         COUNT(DISTINCT CASE WHEN plans.status = 'published' THEN plans.id END) AS active_plans,
-        MAX(daily_logs.updated_at) AS last_activity,
-        CASE WHEN gyms.trial_ends_at > datetime('now') THEN CAST(julianday(gyms.trial_ends_at) - julianday('now') AS INTEGER) ELSE 0 END AS trial_days_left
+        MAX(daily_logs.updated_at) AS last_activity
       FROM gyms
-      LEFT JOIN clients ON clients.gym_id = gyms.id AND clients.deleted_at IS NULL
+      LEFT JOIN clients ON clients.gym_id = gyms.id
       LEFT JOIN plans ON plans.client_id = clients.id
       LEFT JOIN daily_logs ON daily_logs.client_id = clients.id
       GROUP BY gyms.id
@@ -186,11 +187,9 @@ async function handleApi(request, env, ctx, url) {
     const hash = await hashPassword(tempPassword);
 
     await env.DB.batch([
-      env.DB.prepare(`INSERT INTO gyms (id, name, owner_name, email, phone, city, status, plan_tier, trial_ends_at) VALUES (?, ?, ?, ?, ?, ?, 'active', 'trial', datetime('now', '+30 days'))`).bind(gymId, gymName, ownerName, email, phone, city),
+      env.DB.prepare(`INSERT INTO gyms (id, name, owner_name, email, phone, city, status) VALUES (?, ?, ?, ?, ?, ?, 'active')`).bind(gymId, gymName, ownerName, email, phone, city),
       env.DB.prepare(`INSERT INTO users (id, username, password_hash, role, gym_id, must_change_password) VALUES (?, ?, ?, 'admin', ?, 1)`).bind(adminId, adminUsername, hash, gymId),
     ]);
-    // Send welcome email to gym admin
-    await sendWelcomeGymEmail(env, email, adminUsername, gymName, tempPassword);
     return json({ ok: true, gymId, temporaryPassword: tempPassword });
   }
 
@@ -252,11 +251,10 @@ async function handleApi(request, env, ctx, url) {
         (SELECT updated_at FROM checkins WHERE client_id = clients.id ORDER BY updated_at DESC LIMIT 1) AS last_checkin_at,
         (SELECT updated_at FROM weekly_reviews WHERE client_id = clients.id ORDER BY updated_at DESC LIMIT 1) AS last_weekly_review_at,
         (SELECT notes FROM daily_logs WHERE client_id = clients.id AND TRIM(COALESCE(notes, '')) <> '' ORDER BY updated_at DESC LIMIT 1) AS latest_daily_note,
-        (SELECT notes FROM checkins WHERE client_id = clients.id AND TRIM(COALESCE(notes, '')) <> '' ORDER BY updated_at DESC LIMIT 1) AS latest_checkin_note,
-        (SELECT published_at FROM plans WHERE client_id = clients.id AND status = 'published' ORDER BY published_at DESC LIMIT 1) AS plan_published_at
+        (SELECT notes FROM checkins WHERE client_id = clients.id AND TRIM(COALESCE(notes, '')) <> '' ORDER BY updated_at DESC LIMIT 1) AS latest_checkin_note
       FROM clients
       LEFT JOIN users ON users.client_id = clients.id
-      WHERE clients.deleted_at IS NULL ${gymId ? "AND clients.gym_id = ?" : ""}
+      ${gymId ? "WHERE clients.gym_id = ?" : ""}
       ORDER BY clients.created_at DESC
     `).bind(...(gymId ? [gymId] : [])).all();
     const clients = (rows.results || []).map((client) => ({
@@ -354,20 +352,6 @@ async function handleApi(request, env, ctx, url) {
   if (generatePlanMatch && method === "POST") {
     assertRole(session, "admin");
     const clientId = generatePlanMatch[1];
-
-    // Rate limit: max 1 plan generation per client per 24 hours
-    const recentGen = await env.DB.prepare(`
-      SELECT updated_at FROM plans
-      WHERE client_id = ? AND updated_at > datetime('now', '-24 hours')
-      ORDER BY updated_at DESC LIMIT 1
-    `).bind(clientId).first();
-    if (recentGen) {
-      const next = new Date(recentGen.updated_at + "Z");
-      next.setHours(next.getHours() + 24);
-      const hoursLeft = Math.max(1, Math.ceil((next - Date.now()) / 3600000));
-      return json({ error: `Plan generated recently. Next generation available in ${hoursLeft} hour${hoursLeft === 1 ? "" : "s"}.` }, 429);
-    }
-
     const intake = await getLatestIntake(env, clientId);
     if (!intake) return json({ error: "Client intake is required before generating a plan." }, 400);
     const progressContext = await getProgressContext(env, clientId);
@@ -381,7 +365,6 @@ async function handleApi(request, env, ctx, url) {
     const finalReviews = await runAgentPipeline(env, intake.answers_json, finalPlan, householdContext);
     finalReviews.refinedFrom = draftReviews;
     if (householdContext) finalReviews.householdAware = true;
-    await archiveCurrentPlan(env, clientId);
     await saveDraftPlan(env, clientId, intake.id, finalPlan, finalReviews);
     return json({ ok: true });
   }
@@ -465,53 +448,6 @@ async function handleApi(request, env, ctx, url) {
     const body = await readJson(request);
     const result = await exportToGoogleSheets(env, body.clientId || null);
     return json({ ok: true, result });
-  }
-
-  // Mark plan as seen — clears the celebration screen
-  if (url.pathname === "/api/app/mark-plan-seen" && method === "POST") {
-    assertRole(session, "client");
-    const clientId = session.user.client_id;
-    await env.DB.prepare(`
-      UPDATE plans SET plan_notified = 1, updated_at = CURRENT_TIMESTAMP
-      WHERE client_id = ? AND status = 'published'
-    `).bind(clientId).run();
-    return json({ ok: true });
-  }
-
-  const deleteClientMatch = url.pathname.match(/^\/api\/admin\/clients\/([^/]+)\/delete$/);
-  if (deleteClientMatch && method === "POST") {
-    assertRole(session, "admin");
-    const clientId = deleteClientMatch[1];
-    await env.DB.prepare(`UPDATE clients SET deleted_at = CURRENT_TIMESTAMP, status = 'deleted' WHERE id = ?`).bind(clientId).run();
-    await env.DB.prepare(`UPDATE users SET status = 'deleted' WHERE client_id = ?`).bind(clientId).run();
-    return json({ ok: true });
-  }
-
-  // Inactivity check — called by a scheduled Cloudflare CRON or manually
-  if (url.pathname === "/api/admin/check-inactivity" && method === "POST") {
-    assertRole(session, "admin");
-    const gymId = getGymId(session);
-    const inactiveClients = await env.DB.prepare(`
-      SELECT clients.id, clients.full_name, users.email,
-        CAST(julianday('now') - julianday(MAX(daily_logs.log_date)) AS INTEGER) AS days_inactive
-      FROM clients
-      LEFT JOIN users ON users.client_id = clients.id
-      LEFT JOIN daily_logs ON daily_logs.client_id = clients.id
-      WHERE clients.deleted_at IS NULL
-        AND clients.status = 'active'
-        ${gymId ? "AND clients.gym_id = ?" : ""}
-      GROUP BY clients.id
-      HAVING days_inactive >= 3 OR MAX(daily_logs.log_date) IS NULL
-    `).bind(...(gymId ? [gymId] : [])).all();
-
-    let sent = 0;
-    for (const c of (inactiveClients.results || [])) {
-      if (c.email && c.days_inactive >= 3) {
-        await sendInactivityEmail(env, c.email, c.full_name || "there", c.days_inactive || 7);
-        sent++;
-      }
-    }
-    return json({ ok: true, checked: (inactiveClients.results || []).length, emailsSent: sent });
   }
 
   return json({ error: "Not found" }, 404);
@@ -687,19 +623,8 @@ function hydratePlanRow(row) {
     generated_json: generated,
     edited_json: edited,
     agent_reviews_json: agentReviews,
-    plan_notified: row.plan_notified !== undefined ? Number(row.plan_notified) : 1,
     effectivePlan: edited || generated
   };
-}
-
-async function archiveCurrentPlan(env, clientId) {
-  const current = await env.DB.prepare(
-    `SELECT id FROM plans WHERE client_id = ? AND status NOT IN ('archived','deleted') ORDER BY updated_at DESC LIMIT 1`
-  ).bind(clientId).first();
-  if (!current) return;
-  const vc = await env.DB.prepare(`SELECT COUNT(*) AS cnt FROM plans WHERE client_id = ? AND status = 'archived'`).bind(clientId).first();
-  await env.DB.prepare(`UPDATE plans SET status = 'archived', archived_version = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
-    .bind(Number(vc?.cnt || 0) + 1, current.id).run();
 }
 
 async function saveDraftPlan(env, clientId, intakeId, generatedPlan, agentReviews = null) {
@@ -737,25 +662,9 @@ async function setPlanPublished(env, clientId, publish) {
   if (!plan) throw new HttpError("No plan available.", 404);
   await env.DB.prepare(`
     UPDATE plans
-    SET status = ?, published_at = ?, plan_notified = 0, updated_at = CURRENT_TIMESTAMP
+    SET status = ?, published_at = ?, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
   `).bind(publish ? "published" : "draft", publish ? nowIso() : null, plan.id).run();
-
-  // Send plan-ready email to client when published
-  if (publish) {
-    try {
-      const clientUser = await env.DB.prepare(
-        `SELECT users.email, clients.full_name FROM users LEFT JOIN clients ON clients.id = users.client_id WHERE users.client_id = ?`
-      ).bind(client.id).first();
-      const adminUser = await env.DB.prepare(
-        `SELECT full_name, username FROM users WHERE id = ? LIMIT 1`
-      ).bind(session.user.id).first();
-      const coachName = adminUser?.full_name || adminUser?.username || "Your coach";
-      if (clientUser?.email) {
-        await sendPlanReadyEmail(env, clientUser.email, clientUser.full_name || "there", coachName);
-      }
-    } catch (e) { /* email failure should never break publish */ }
-  }
 }
 
 async function upsertDailyLog(env, clientId, logDate, payload) {
@@ -1085,25 +994,16 @@ async function generatePlanFromIntake(env, intake, progressContext = {}, househo
   ].join("\n");
 
   const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL || "gemini-2.5-flash"}:generateContent?key=${env.GEMINI_API_KEY}`;
-  const ctrl = new AbortController();
-  const tout = setTimeout(() => ctrl.abort(), 55000);
-  let res;
-  try {
-    res = await fetch(apiUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: { responseMimeType: "application/json" }
-      }),
-      signal: ctrl.signal
-    });
-  } catch (err) {
-    clearTimeout(tout);
-    if (err.name === "AbortError") throw new HttpError("AI service timed out. Please try again.", 504);
-    throw new HttpError("AI service unreachable. Please try again.", 502);
-  }
-  clearTimeout(tout);
+  const res = await fetch(apiUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: {
+        responseMimeType: "application/json"
+      }
+    })
+  });
 
   if (!res.ok) {
     return fallbackPlanFromIntake(intake, {
@@ -1377,79 +1277,6 @@ function trimForStorage(value, limit = 500) {
   const text = String(value || "").trim();
   if (!text) return "";
   return text.length > limit ? `${text.slice(0, limit)}...` : text;
-}
-
-// ─── EMAIL NOTIFICATIONS ───────────────────────────────────────
-async function sendEmail(env, to, subject, html) {
-  // Uses Cloudflare Email Workers (MailChannels) — free tier
-  // Set MAIL_FROM in wrangler.toml secrets e.g. noreply@yourdomain.com
-  if (!env.MAIL_FROM) return; // silently skip if not configured
-  try {
-    await fetch("https://api.mailchannels.net/tx/v1/send", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        personalizations: [{ to: [{ email: to }] }],
-        from: { email: env.MAIL_FROM, name: env.MAIL_FROM_NAME || "GymLog" },
-        subject,
-        content: [{ type: "text/html", value: html }]
-      })
-    });
-  } catch (e) {
-    console.error("Email send failed:", e.message);
-  }
-}
-
-async function sendPlanReadyEmail(env, clientEmail, clientName, coachName) {
-  if (!clientEmail) return;
-  const html = `
-    <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
-      <h2 style="color:#FF5C28">Your fitness plan is ready! 🎉</h2>
-      <p>Hi ${clientName},</p>
-      <p>Your coach <strong>${coachName}</strong> has reviewed and published your personalised fitness plan.</p>
-      <p>Log in to your GymLog app to see your workout split, meal options, and your first day's mission.</p>
-      <a href="${env.APP_URL || "#"}" style="display:inline-block;margin-top:16px;padding:12px 24px;background:#FF5C28;color:#fff;border-radius:8px;text-decoration:none;font-weight:700">View My Plan →</a>
-      <p style="margin-top:24px;font-size:12px;color:#888">You received this because you are a client on GymLog. Reply to this email to contact your coach.</p>
-    </div>`;
-  await sendEmail(env, clientEmail, "Your fitness plan is ready! 🔥", html);
-}
-
-async function sendWelcomeGymEmail(env, adminEmail, adminUsername, gymName, tempPassword) {
-  if (!adminEmail) return;
-  const html = `
-    <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
-      <h2 style="color:#FF5C28">Welcome to GymLog! 🏋️</h2>
-      <p>Your gym <strong>${gymName}</strong> has been set up on GymLog.</p>
-      <p><strong>Your login details:</strong></p>
-      <div style="background:#f5f5f5;padding:16px;border-radius:8px;margin:12px 0">
-        <p style="margin:4px 0">Username: <strong>${adminUsername}</strong></p>
-        <p style="margin:4px 0">Temporary password: <strong>${tempPassword}</strong></p>
-      </div>
-      <p>You will be asked to change your password on first login.</p>
-      <p><strong>Getting started:</strong></p>
-      <ol style="line-height:1.8">
-        <li>Log in at <a href="${env.APP_URL || "#"}">${env.APP_URL || "your app URL"}</a></li>
-        <li>Create your first client using the form on the dashboard</li>
-        <li>Share their login credentials with them</li>
-        <li>Ask them to fill in the intake form</li>
-        <li>Generate their personalised plan with one click</li>
-      </ol>
-      <p style="margin-top:24px;font-size:12px;color:#888">Need help? Reply to this email.</p>
-    </div>`;
-  await sendEmail(env, adminEmail, `Welcome to GymLog — ${gymName} is live!`, html);
-}
-
-async function sendInactivityEmail(env, clientEmail, clientName, daysInactive) {
-  if (!clientEmail) return;
-  const html = `
-    <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
-      <h2 style="color:#FF5C28">We miss you, ${clientName} 👋</h2>
-      <p>It's been <strong>${daysInactive} days</strong> since you last logged a session.</p>
-      <p>Your coach has a plan waiting for you. Every session counts — even a short one.</p>
-      <a href="${env.APP_URL || "#"}" style="display:inline-block;margin-top:16px;padding:12px 24px;background:#FF5C28;color:#fff;border-radius:8px;text-decoration:none;font-weight:700">Log Today's Session →</a>
-      <p style="margin-top:24px;font-size:12px;color:#888">To stop receiving reminders, ask your coach to pause your account.</p>
-    </div>`;
-  await sendEmail(env, clientEmail, `${clientName}, your coach is waiting for you 💪`, html);
 }
 
 function generateTempPassword() {
