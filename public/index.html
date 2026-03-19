@@ -2747,7 +2747,7 @@
                             <td><span class="pill active">${formatClientStatus(client.status)}</span></td>
                             <td>
                             <span class="pill ${client.plan_status === 'published' ? 'published' : client.plan_status === 'draft' ? 'draft' : 'none'}">${client.plan_status || "none"}</span>
-                            ${isStale ? `<span class="pill alert" style="margin-left:4px;font-size:9px" title="${planAge} days on current plan">⚠ ${planAge}d</span>` : ""}
+                      
                           </td>
                             <td><button class="ghost-btn open-client" data-client-id="${client.id}" style="padding:7px 12px;font-size:12px">Open →</button></td>
                           </tr>
