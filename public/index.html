@@ -2522,6 +2522,8 @@
       const isAdmin = state.me?.role === "admin" || isSuperAdmin;
       const activeGym = state.superadminData?.gyms?.find(g => g.id === state.activeAdminGymId) || state.superadminGymDetail?.gym || state.superadminData?.gyms?.[0];
       const myGymName = activeGym?.name || "My Gym";
+      const gymSwitcher = (isViewingAsAdmin && state.superadminData && state.superadminData.gyms && state.superadminData.gyms.length > 1) ? `<div style="margin-bottom:10px;display:flex;align-items:center;gap:10px;font-size:13px"><span style="color:var(--text-3)">Viewing gym:</span><select id="gym-switcher" style="background:var(--surface-2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:4px 8px;font-size:13px;cursor:pointer">${(state.superadminData.gyms||[]).map(g=>`<option value="${g.id}" ${g.id===state.activeAdminGymId?'selected':''}>${g.name}</option>`).join('')}</select></div>` : '';
+      const coachingBanner = isViewingAsAdmin ? `<div style="margin-bottom:14px;padding:10px 16px;background:rgba(0,203,168,.08);border:1px solid rgba(0,203,168,.2);border-radius:10px;font-size:13px;color:var(--teal)">⚙ Managing <strong>${myGymName}</strong> as coach — click <strong>← Platform</strong> in the sidebar to return to platform overview.</div>${gymSwitcher}` : "";
       const app = state.appData || {};
       const nav = (isSuperAdmin && !isViewingAsAdmin) ? [
         ["/superadmin", "All Gyms"],
@@ -3220,13 +3222,7 @@
         : isSuperAdmin ? "App Owner · Superadmin"
         : "Admin Console";
       const title = isSuperAdmin ? "GymLog Platform" : "Fitness Platform";
-      const gymSwitcher = (isViewingAsAdmin && state.superadminData && state.superadminData.gyms && state.superadminData.gyms.length > 1) ? `<div style="margin-bottom:10px;display:flex;align-items:center;gap:10px;font-size:13px"><span style="color:var(--text-3)">Viewing gym:</span><select id="gym-switcher" style="background:var(--surface-2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:4px 8px;font-size:13px;cursor:pointer">${(state.superadminData.gyms||[]).map(g=>`<option value="${g.id}" ${g.id===state.activeAdminGymId?'selected':''}>${g.name}</option>`).join('')}</select></div>` : '';
-      const coachingBanner = isViewingAsAdmin ? `
-        <div style="margin-bottom:14px;padding:10px 16px;background:rgba(0,203,168,.08);border:1px solid rgba(0,203,168,.2);border-radius:10px;font-size:13px;color:var(--teal)">
-          ⚙ Managing <strong>${myGymName}</strong> as coach — click <strong>← Platform</strong> in the sidebar to return to platform overview.
-        </div>
-        ${gymSwitcher}
-      ` : "";
+
 
       root.innerHTML = isAdmin ? `
         <div class="app-shell">
