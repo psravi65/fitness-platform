@@ -823,12 +823,13 @@
     }
 
     async function api(path, options = {}){
+      const { headers: _optHeaders, ...restOptions } = options;
       const actingGymHeader = (state.me && state.me.role === "superadmin" && state.route && state.route.startsWith("/admin") && state.activeAdminGymId)
         ? { "X-Acting-Gym-Id": state.activeAdminGymId } : {};
       const res = await fetch(path, {
-        headers: { "Content-Type": "application/json", ...actingGymHeader, ...(options.headers || {}) },
+        headers: { "Content-Type": "application/json", ...actingGymHeader, ...(_optHeaders || {}) },
         credentials: "include",
-        ...options
+        ...restOptions
       });
       const text = await res.text();
       let json = {};
@@ -910,11 +911,10 @@
           state.activeAdminGymId = state.superadminData.gyms[0].id;
         }
         try {
-          state.clients = (await api("/api/admin/clients", { method: "GET", headers: {} })).clients;
+          state.clients = (await api("/api/admin/clients", { method: "GET" })).clients;
         } catch(err) {
           setFlash("Could not load clients: " + err.message, true);
-          state.clients = [];
-          render(); return;
+          state.clients = []; render(); return;
         }
         const match = path.match(/^\/admin\/clients\/([^/]+)$/);
         if(match){
@@ -2592,13 +2592,8 @@
                   </table>
                 ` : '<div class="empty">No clients yet for this gym.</div>'}
               </div>
-              ${gymDetail.unassignedCount > 0 ? `
-                <div style="margin-top:12px;padding:12px 16px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:10px;display:flex;justify-content:space-between;align-items:center">
-                  <div style="font-size:13px;color:#F59E0B">⚠ <strong>${gymDetail.unassignedCount} client${gymDetail.unassignedCount>1?'s':''}</strong> exist without a gym assignment. Claim them to make them visible here and to gym admins.</div>
-                  <button class="ghost-btn" id="claim-unassigned-btn" data-gym-id="${gym.id}" style="color:#F59E0B;border-color:#F59E0B;white-space:nowrap;margin-left:12px">Claim ${gymDetail.unassignedCount} clients →</button>
-                </div>
-              ` : ""}
-              ${state.draftPassword ? `<div class="temp-password-box" style="margin-top:12px"><div class="temp-password-label">⚡ Admin Temp Password — save now, shown once</div><div class="temp-password-value">${escapeHtml(state.draftPassword)}</div></div>` : ""}
+              ${gymDetail.unassignedCount > 0 ? `<div style="margin-top:12px;padding:12px 16px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:10px;display:flex;justify-content:space-between;align-items:center"><div style="font-size:13px;color:#F59E0B">⚠ <strong>${gymDetail.unassignedCount} client${gymDetail.unassignedCount>1?'s':''}</strong> exist without a gym — claim them to make them visible.</div><button class="ghost-btn" id="claim-unassigned-btn" data-gym-id="${gym.id}" style="color:#F59E0B;border-color:#F59E0B;white-space:nowrap;margin-left:12px">Claim ${gymDetail.unassignedCount} →</button></div>` : ""}
+              ${state.draftPassword ? `<div class="temp-password-box" style="margin-top:12px"><div class="temp-password-label">⚡ Admin Temp Password — save now</div><div class="temp-password-value">${escapeHtml(state.draftPassword)}</div></div>` : ""}
             </div>
           `;
         } else {
@@ -3227,6 +3222,12 @@
         : isSuperAdmin ? "App Owner · Superadmin"
         : "Admin Console";
       const title = isSuperAdmin ? "GymLog Platform" : "Fitness Platform";
+      const coachingBanner = isViewingAsAdmin ? `
+        <div style="margin-bottom:14px;padding:10px 16px;background:rgba(0,203,168,.08);border:1px solid rgba(0,203,168,.2);border-radius:10px;font-size:13px;color:var(--teal)">
+          ⚙ Managing <strong>${myGymName}</strong> as coach — click <strong>← Platform</strong> in the sidebar to return to platform overview.
+        </div>
+      ` : "";
+
       root.innerHTML = isAdmin ? `
         <div class="app-shell">
           <div class="topbar">
@@ -3292,34 +3293,30 @@
         const toggleBtn = document.getElementById("toggle-gym-status");
         if(toggleBtn) toggleBtn.onclick = () => toggleGymStatus(toggleBtn.dataset.gymId, toggleBtn.dataset.status);
 
-        // Manage Clients → switch to admin view scoped to this gym
         const manageBtn = document.getElementById("manage-as-admin-btn");
         if(manageBtn) manageBtn.onclick = async () => {
           state.activeAdminGymId = manageBtn.dataset.gymId;
           if(!state.superadminData){
-            try{ state.superadminData = await api("/api/superadmin/gyms", { method: "GET", headers: {} }); }catch{}
+            try{ state.superadminData = await api("/api/superadmin/gyms", { method: "GET" }); }catch{}
           }
           setRoute("/admin");
         };
 
-        // Claim unassigned clients → assign all null-gym_id clients to this gym
         const claimBtn = document.getElementById("claim-unassigned-btn");
         if(claimBtn) claimBtn.onclick = async () => {
-          if(!confirm(`Assign all unassigned clients to ${state.superadminGymDetail.gym.name}? This cannot be undone.`)) return;
+          if(!confirm(`Assign all unassigned clients to ${state.superadminGymDetail.gym.name}?`)) return;
           claimBtn.disabled = true; claimBtn.textContent = "Claiming…";
           try {
             const res = await api("/api/superadmin/gyms/" + claimBtn.dataset.gymId + "/claim-unassigned", { method: "POST", body: "{}" });
-            setFlash(res.claimed + " client" + (res.claimed !== 1 ? "s" : "") + " claimed successfully. They are now visible to the gym admin.");
-            state.superadminGymDetail = await api("/api/superadmin/gyms/" + claimBtn.dataset.gymId, { method: "GET", headers: {} });
+            setFlash(res.claimed + " client" + (res.claimed !== 1 ? "s" : "") + " claimed successfully.");
+            state.superadminGymDetail = await api("/api/superadmin/gyms/" + claimBtn.dataset.gymId, { method: "GET" });
             render();
-          } catch(err) { setFlash(err.message, true); }
-          claimBtn.disabled = false;
+          } catch(err) { setFlash(err.message, true); claimBtn.disabled = false; }
         };
 
-        // Reset Admin Password
         const resetBtn = document.getElementById("reset-admin-pwd-btn");
         if(resetBtn) resetBtn.onclick = async () => {
-          if(!confirm("Generate a new temporary password for this gym's admin? Their current password stops working immediately.")) return;
+          if(!confirm("Reset admin password for this gym?")) return;
           resetBtn.disabled = true; resetBtn.textContent = "Resetting…";
           try {
             const res = await api("/api/superadmin/gyms/" + resetBtn.dataset.gymId + "/reset-admin-password", { method: "POST", body: "{}" });
@@ -3330,7 +3327,6 @@
         };
       }
 
-      // Gym switcher when superadmin is viewing as admin
       if(isViewingAsAdmin && path === "/admin"){
         const gymSwitcherEl = document.getElementById("gym-switcher");
         if(gymSwitcherEl) gymSwitcherEl.onchange = async (e) => {
