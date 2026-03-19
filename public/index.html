@@ -3227,12 +3227,6 @@
         : isSuperAdmin ? "App Owner · Superadmin"
         : "Admin Console";
       const title = isSuperAdmin ? "GymLog Platform" : "Fitness Platform";
-      const coachingBanner = isViewingAsAdmin ? `
-        <div style="margin-bottom:14px;padding:10px 16px;background:rgba(0,203,168,.08);border:1px solid rgba(0,203,168,.2);border-radius:10px;font-size:13px;color:var(--teal)">
-          ⚙ Managing <strong>${myGymName}</strong> as coach — click <strong>← Platform</strong> in the sidebar to return to platform overview.
-        </div>
-      ` : "";
-
       root.innerHTML = isAdmin ? `
         <div class="app-shell">
           <div class="topbar">
