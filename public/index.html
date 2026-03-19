@@ -673,6 +673,11 @@
       border-color:rgba(95,222,122,.35);
       color:var(--lime);
     }
+    .meal-card-picker { display:grid; gap:8px; margin-top:4px; }
+    .meal-option-card { padding:12px 14px; border-radius:10px; background:var(--surface-2); border:1.5px solid var(--border); cursor:pointer; transition:border-color .15s, background .15s; }
+    .meal-option-card:hover { border-color:var(--accent); background:rgba(255,92,40,.04); }
+    .meal-option-card.selected { border-color:var(--accent); background:rgba(255,92,40,.08); }
+    .meal-option-card.selected::before { content:"✓  "; color:var(--accent); font-weight:800; }
     .exercise-card{
       background:var(--surface-2);
       border:1px solid var(--border);
@@ -735,9 +740,6 @@
       selectedClient: null,
       adminClientDetail: null,
       appData: null,
-      superadminData: null,
-      superadminGymDetail: null,
-      impersonatingGymId: null,
       loading: false,
       message: "",
       error: "",
@@ -850,12 +852,8 @@
         setRoute("/login");
         return false;
       }
-      // superadmin can access admin routes
-      if(role === "admin" && state.me.role === "superadmin") return true;
       if(role && state.me.role !== role){
-        if(state.me.role === "superadmin") setRoute("/superadmin");
-        else if(state.me.role === "admin") setRoute("/admin");
-        else setRoute("/app");
+        setRoute(state.me.role === "admin" ? "/admin" : "/app");
         return false;
       }
       return true;
@@ -886,17 +884,7 @@
       const path = state.route;
       if(path === "/login") return;
       if(state.me?.mustChangePassword) return;
-      if(path.startsWith("/superadmin")){
-        if(!requireAuth("superadmin")) return;
-        const gymMatch = path.match(/^\/superadmin\/gyms\/([^/]+)$/);
-        if(gymMatch){
-          state.superadminGymDetail = await api("/api/superadmin/gyms/" + gymMatch[1], { method: "GET", headers: {} });
-          state.superadminData = null;
-        } else {
-          state.superadminData = await api("/api/superadmin/gyms", { method: "GET", headers: {} });
-          state.superadminGymDetail = null;
-        }
-      } else if(path.startsWith("/admin")){
+      if(path.startsWith("/admin")){
         if(!requireAuth("admin")) return;
         state.clients = (await api("/api/admin/clients", { method: "GET", headers: {} })).clients;
         const match = path.match(/^\/admin\/clients\/([^/]+)$/);
@@ -911,9 +899,7 @@
         state.appData = await api("/api/app/bootstrap", { method: "GET", headers: {} });
       } else {
         if(state.me){
-          if(state.me.role === "superadmin") setRoute("/superadmin");
-          else if(state.me.role === "admin") setRoute("/admin");
-          else setRoute("/app");
+          setRoute(state.me.role === "admin" ? "/admin" : "/app");
           return;
         }
         setRoute("/login");
@@ -935,17 +921,94 @@
         });
         state.me = res.user;
         setFlash("Logged in.");
-        const dest = state.me.mustChangePassword ? "/app/password"
-          : state.me.role === "superadmin" ? "/superadmin"
-          : state.me.role === "admin" ? "/admin"
-          : "/app";
-        setRoute(dest);
+        setRoute(state.me.mustChangePassword ? "/app/password" : (state.me.role === "admin" ? "/admin" : "/app"));
       }catch(err){
         setFlash(err.message, true);
       }
     }
 
-    async function bootstrapAdmin(ev){
+    function selectMealCard(el){
+      const picker = el.closest(".meal-card-picker");
+      if(!picker) return;
+      picker.querySelectorAll(".meal-option-card").forEach(c => c.classList.remove("selected"));
+      el.classList.add("selected");
+      const hidden = picker.querySelector("input[type='hidden']");
+      if(hidden){
+        hidden.value = el.dataset.value || "";
+        hidden.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      // Trigger macro recalculation
+      const form = picker.closest("form");
+      if(form && typeof updateMacroInputsFromMeals === "function") updateMacroInputsFromMeals(form);
+    }
+
+    function bindSetCounters(){
+      document.querySelectorAll(".set-check").forEach(cb => {
+        if(cb.dataset.bound) return;
+        cb.dataset.bound = "1";
+        cb.addEventListener("change", () => {
+          const exId = cb.dataset.exerciseId;
+          if(!exId) return;
+          // Update hidden sets input
+          const container = cb.closest(".exercise-card");
+          if(!container) return;
+          const allChecks = container.querySelectorAll(`.set-check[data-exercise-id="${exId}"]`);
+          const states = Array.from(allChecks).map(c => c.checked);
+          const hidden = container.querySelector(`input[name="sets_${exId}"]`);
+          if(hidden) hidden.value = JSON.stringify(states);
+          // Update toggle wrap styles
+          allChecks.forEach((c, i) => {
+            c.closest(".set-toggle-wrap")?.classList.toggle("active", c.checked);
+          });
+          // Update counter
+          const counter = document.getElementById(`set-counter-${exId}`);
+          if(counter){
+            const done = states.filter(Boolean).length;
+            const total = states.length;
+            const allDone = done === total && total > 0;
+            counter.textContent = done > 0 ? `${done}/${total} done` : `${total} sets`;
+            counter.style.color = allDone ? "var(--lime)" : done > 0 ? "var(--gold)" : "var(--text-3)";
+          }
+        });
+      });
+      // Cardio done checkbox
+      document.querySelectorAll(".cardio-done-check").forEach(cb => {
+        if(cb.dataset.bound) return;
+        cb.dataset.bound = "1";
+        cb.addEventListener("change", () => {
+          const exId = cb.dataset.exerciseId;
+          if(!exId) return;
+          const container = cb.closest(".exercise-card");
+          if(!container) return;
+          const hidden = container.querySelector(`input[name="sets_${exId}"]`);
+          if(hidden) hidden.value = JSON.stringify([cb.checked]);
+        });
+      });
+    }
+
+    function bindIntakeScrollProgress(){
+      const bar = document.getElementById("intake-progress-bar");
+      const label = document.getElementById("intake-section-label");
+      const sections = document.querySelectorAll("[data-section-index]");
+      if(!bar || !sections.length) return;
+      const total = sections.length;
+      const observer = new IntersectionObserver(entries => {
+        let maxVisible = 0;
+        entries.forEach(e => {
+          if(e.isIntersecting){
+            const idx = Number(e.target.dataset.sectionIndex);
+            if(idx > maxVisible) maxVisible = idx;
+          }
+        });
+        const pct = Math.round(((maxVisible + 1) / total) * 100);
+        bar.style.width = pct + "%";
+        const title = sections[maxVisible]?.dataset.sectionTitle || "";
+        if(label) label.textContent = `Section ${maxVisible + 1} of ${total}${title ? " — " + title : ""}`;
+      }, { threshold: 0.3 });
+      sections.forEach(s => observer.observe(s));
+    }
+
+        async function bootstrapAdmin(ev){
       ev.preventDefault();
       const form = new FormData(ev.target);
       try{
@@ -953,86 +1016,12 @@
           method: "POST",
           body: JSON.stringify({
             username: form.get("username"),
-            password: form.get("password"),
-            superadmin: form.get("superadmin") === "on"
+            password: form.get("password")
           })
         });
-        setFlash("Account created. You can log in now.");
+        setFlash("Admin created. You can log in now.");
         state.needsAdminBootstrap = false;
         render();
-      }catch(err){
-        setFlash(err.message, true);
-      }
-    }
-
-    async function createGym(ev){
-      ev.preventDefault();
-      const form = new FormData(ev.target);
-      const btn = ev.target.querySelector('button[type="submit"]');
-      const orig = btn ? btn.textContent : "";
-      if(btn){ btn.disabled = true; btn.textContent = "Creating…"; }
-      try{
-        const res = await api("/api/superadmin/gyms", {
-          method: "POST",
-          body: JSON.stringify({
-            gymName: form.get("gymName"),
-            ownerName: form.get("ownerName"),
-            email: form.get("email"),
-            phone: form.get("phone"),
-            city: form.get("city"),
-            adminUsername: form.get("adminUsername")
-          })
-        });
-        state.draftPassword = res.temporaryPassword;
-        setFlash("Gym created. Save the admin password now.");
-        await bootstrapForRoute();
-      }catch(err){
-        if(btn){ btn.disabled = false; btn.textContent = orig; }
-        setFlash(err.message, true);
-      }
-    }
-
-    async function toggleGymStatus(gymId, currentStatus){
-      const newStatus = currentStatus === "active" ? "suspended" : "active";
-      try{
-        await api("/api/superadmin/gyms/" + gymId, {
-          method: "PATCH",
-          body: JSON.stringify({ status: newStatus })
-        });
-        setFlash("Gym " + newStatus + ".");
-        await bootstrapForRoute();
-      }catch(err){
-        setFlash(err.message, true);
-      }
-    }
-
-    async function impersonateGymAdmin(gymId){
-      // Store the gym we're managing and switch to admin view
-      state.impersonatingGymId = gymId;
-      try{
-        const res = await api("/api/superadmin/impersonate/" + gymId, { method: "POST", body: "{}" });
-        if(res.ok){
-          // Re-fetch session — now acting as admin for this gym
-          const me = await api("/api/me", { method: "GET", headers: {} });
-          state.me = me.user;
-          setFlash("Now managing " + res.gymName + " as admin.");
-          setRoute("/admin");
-        }
-      }catch(err){
-        setFlash(err.message, true);
-      }
-    }
-
-    async function exitImpersonation(){
-      try{
-        const res = await api("/api/superadmin/impersonate/exit", { method: "POST", body: "{}" });
-        if(res.ok){
-          const me = await api("/api/me", { method: "GET", headers: {} });
-          state.me = me.user;
-          state.impersonatingGymId = null;
-          setFlash("Returned to superadmin view.");
-          setRoute("/superadmin");
-        }
       }catch(err){
         setFlash(err.message, true);
       }
@@ -1493,16 +1482,16 @@
           container.innerHTML = renderWorkoutExerciseCards(state.appData?.plan, selected, entries);
           bindWorkoutSetButtons(form);
         }
-        updateWorkoutDraftStatus(selected ? "Tap sets and enter weight, then press Submit Workout." : "Select today's workout to start logging.");
+        updateWorkoutDraftStatus(selected ? "Tap each set as you complete it. Press Save Session when done." : "Select today's workout to start logging.");
       };
       form.querySelector('[name="workoutSession"]')?.addEventListener("change", sync);
       form.addEventListener("input", () => {
         syncWorkoutFormToState(form);
-        updateWorkoutDraftStatus("Workout updated. Press Submit Workout to save.");
+        updateWorkoutDraftStatus("Progress saved. Press Save Session when your workout is done.");
       });
       form.addEventListener("change", () => {
         syncWorkoutFormToState(form);
-        updateWorkoutDraftStatus("Workout updated. Press Submit Workout to save.");
+        updateWorkoutDraftStatus("Progress saved. Press Save Session when your workout is done.");
       });
       sync();
     }
@@ -1521,7 +1510,7 @@
         const current = exercise ? readExerciseSetState(form, exercise) : safeJson(hidden?.value, []);
         if(hidden) hidden.value = JSON.stringify(current);
         syncWorkoutFormToState(form);
-        updateWorkoutDraftStatus(`Set ${setIndex + 1} ${check.checked ? "completed" : "cleared"}. Press Submit Workout to save.`);
+        updateWorkoutDraftStatus(`Set ${setIndex + 1} ${check.checked ? "✓ completed" : "cleared"}. Tap all sets then press Save Session.`);
       };
     }
 
@@ -1924,14 +1913,25 @@
     }
 
     function renderIntakeForm(values = {}, submitLabel, onSubmit, clientId){
+      const totalSections = intakeSections.length;
       return `
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;min-height:18px">
-          <span id="intake-draft-indicator" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-3)">Typing auto-saves a local draft — safe if connection drops.</span>
+        <div style="margin-bottom:14px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <span style="font-size:12px;font-weight:600;color:var(--text-2)">Intake Form</span>
+            <span id="intake-draft-indicator" style="font-size:11px;color:var(--teal)">✓ Draft auto-saved</span>
+          </div>
+          <div style="height:4px;background:var(--surface-3);border-radius:99px;overflow:hidden">
+            <div id="intake-progress-bar" style="height:100%;width:${Math.round((1/totalSections)*100)}%;background:var(--accent);border-radius:99px;transition:width .4s ease"></div>
+          </div>
+          <div id="intake-section-label" style="font-size:11px;color:var(--text-3);margin-top:4px">Section 1 of ${totalSections} — ${intakeSections[0]?.title || ''}</div>
         </div>
         <form class="grid" onsubmit="${onSubmit}" data-intake-clientid="${escapeAttr(clientId || '')}">
-          ${intakeSections.map(section => `
-            <div class="card">
-              <h3>${section.title}</h3>
+          ${intakeSections.map((section, sIdx) => `
+            <div class="card" data-section-index="${sIdx}" data-section-title="${escapeAttr(section.title)}">
+              <h3 style="display:flex;align-items:center;gap:8px">
+                <span style="font-size:11px;font-family:'JetBrains Mono',monospace;padding:2px 7px;border-radius:99px;background:rgba(255,92,40,.1);color:var(--accent)">${sIdx+1}/${totalSections}</span>
+                ${section.title}
+              </h3>
               <div class="grid cols-2" style="margin-top:14px">
                 ${section.fields.map(([field, label, meta]) => `
                   <label style="${(section.fields.length === 1 || meta?.type === 'textarea') ? 'grid-column:1/-1' : ''}">
@@ -1943,7 +1943,7 @@
             </div>
           `).join("")}
           <div class="inline">
-            <button class="action-btn" type="submit">${submitLabel}</button>
+            <button class="action-btn" type="submit" id="intake-submit-btn">${submitLabel}</button>
           </div>
         </form>
       `;
@@ -2007,12 +2007,31 @@
     }
 
     function renderMealSelect(name, section, selectedValue){
-      const options = section?.options || [];
+      const options = (section?.options || []).map(o => typeof o === "string" ? { label: o, calories: 0, protein: 0, carbs: 0, fat: 0 } : o);
+      if(!options.length) return `<div class="subtle" style="padding:10px 0;font-size:13px">No meal options in your plan yet.</div>`;
       return `
-        <select name="${name}">
-          <option value="">Select an option</option>
-          ${options.map(option => `<option value="${escapeAttr(option.label)}" ${option.label === selectedValue ? "selected" : ""}>${escapeHtml(formatMealOptionLine(option))}</option>`).join("")}
-        </select>
+        <div class="meal-card-picker" data-field="${escapeAttr(name)}">
+          <input type="hidden" name="${escapeAttr(name)}" value="${escapeAttr(selectedValue || "")}"/>
+          ${options.map(opt => {
+            const norm = opt.label || opt.name || "";
+            const cal = Number(opt.calories || 0);
+            const pro = Number(opt.protein || 0);
+            const carb = Number(opt.carbs || 0);
+            const fat = Number(opt.fat || 0);
+            const sel = norm === selectedValue;
+            return `
+              <div class="meal-option-card ${sel ? 'selected' : ''}" data-value="${escapeAttr(norm)}" onclick="selectMealCard(this)">
+                <div style="font-size:13.5px;font-weight:700;color:var(--text);line-height:1.35;margin-bottom:7px">${escapeHtml(norm)}</div>
+                <div style="display:flex;flex-wrap:wrap;gap:5px">
+                  ${cal > 0 ? `<span style="font-size:11px;font-family:'JetBrains Mono',monospace;padding:2px 8px;border-radius:99px;background:rgba(255,92,40,.12);color:var(--accent)">${cal} kcal</span>` : ""}
+                  ${pro > 0 ? `<span style="font-size:11px;font-family:'JetBrains Mono',monospace;padding:2px 8px;border-radius:99px;background:rgba(0,203,168,.12);color:var(--teal)">P ${pro}g</span>` : ""}
+                  ${carb > 0 ? `<span style="font-size:11px;font-family:'JetBrains Mono',monospace;padding:2px 8px;border-radius:99px;background:rgba(255,195,0,.12);color:var(--gold)">C ${carb}g</span>` : ""}
+                  ${fat > 0 ? `<span style="font-size:11px;font-family:'JetBrains Mono',monospace;padding:2px 8px;border-radius:99px;background:rgba(157,124,244,.12);color:var(--purple)">F ${fat}g</span>` : ""}
+                </div>
+              </div>
+            `;
+          }).join("")}
+        </div>
       `;
     }
 
@@ -2035,6 +2054,8 @@
       return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
     }
 
+    const CARDIO_KEYWORDS = /\b(cardio|treadmill|run|jog|walk|cycling|bike|cycle|swim|hiit|elliptical|rowing|skip|jump rope|stair|stepper|sprint|min |minute|km|miles?|steps)\b/i;
+
     function parseWorkoutExercise(raw, index){
       const text = String(raw || "").trim();
       const match = text.match(/^(.*?)(?:\s+(\d+)\s*[x×]\s*([0-9A-Za-z+\-\/ ]+))?(?:\s*@\s*(.+))?$/);
@@ -2042,12 +2063,14 @@
       const sets = Number(match?.[2] || 3);
       const reps = (match?.[3] || "8-12").trim();
       const target = (match?.[4] || "").trim();
+      const isCardio = CARDIO_KEYWORDS.test(text);
       return {
         id: `${slugify(name)}-${index}`,
         name,
         sets,
         reps,
-        target
+        target,
+        isCardio
       };
     }
 
@@ -2062,7 +2085,15 @@
       return `
         <select name="workoutSession">
           <option value="">Select today's workout</option>
-          ${sessions.map(item => `<option value="${escapeAttr(item.day)}" ${item.day === selectedValue ? "selected" : ""}>${escapeHtml(item.day)}</option>`).join("")}
+          ${sessions.map(item => {
+            const exercises = (item.exercises || []).slice(0,3).map(e => {
+              const name = String(e || "").trim().split(/\s+[0-9]/)[0].trim();
+              return name.length > 18 ? name.slice(0,16) + "…" : name;
+            });
+            const label = item.focus || (exercises.length ? exercises.join(", ") : "");
+            const display = label ? `${escapeHtml(item.day)} — ${escapeHtml(label)}` : escapeHtml(item.day);
+            return `<option value="${escapeAttr(item.day)}" ${item.day === selectedValue ? "selected" : ""}>${display}</option>`;
+          }).join("")}
         </select>
       `;
     }
@@ -2103,6 +2134,40 @@
         const entry = entries[exercise.id] || { sets: Array(exercise.sets).fill(false), weight: exercise.target || "" };
         const history = getExerciseHistory(state.appData?.recentWorkoutLogs, exercise.id);
         const lastWeight = history.length ? history[history.length - 1].weight : "";
+
+        if(exercise.isCardio){
+          // ── Cardio exercise: duration input + done checkbox ──
+          return `
+            <div class="exercise-card" style="border-left:3px solid var(--teal)">
+              <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
+                <div style="flex:1">
+                  <div class="exercise-name">${escapeHtml(exercise.name)}</div>
+                  <div class="exercise-meta" style="color:var(--teal)">Cardio · log duration below</div>
+                </div>
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px 14px;background:var(--surface-2);border:1px solid rgba(0,203,168,.2);border-radius:10px;flex-shrink:0">
+                  <input class="set-check cardio-done-check" type="checkbox" name="cardio_done_${exercise.id}" data-exercise-id="${exercise.id}" ${entry.sets?.[0] ? "checked" : ""} style="width:16px;height:16px;accent-color:var(--teal)"/>
+                  <span style="font-size:13px;font-weight:600;color:var(--teal)">Done</span>
+                </label>
+              </div>
+              <input type="hidden" name="sets_${exercise.id}" value="${escapeAttr(JSON.stringify([entry.sets?.[0] || false]))}"/>
+              <div style="margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                <label style="display:grid;gap:4px">
+                  <span style="font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.08em">Duration (min)</span>
+                  <input name="weight_${exercise.id}" value="${escapeAttr(entry.weight || "")}" placeholder="e.g. 20" style="font-family:'JetBrains Mono',monospace;font-size:13px;padding:10px 12px"/>
+                </label>
+                <label style="display:grid;gap:4px">
+                  <span style="font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.08em">Intensity</span>
+                  <input name="cardio_intensity_${exercise.id}" placeholder="e.g. moderate" style="font-size:13px;padding:10px 12px"/>
+                </label>
+              </div>
+            </div>
+          `;
+        }
+
+        // ── Strength exercise: sets + counter ──
+        const doneCount = (entry.sets || []).filter(Boolean).length;
+        const totalSets = exercise.sets;
+        const allDone = doneCount === totalSets && totalSets > 0;
         return `
           <div class="exercise-card">
             <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
@@ -2110,7 +2175,10 @@
                 <div class="exercise-name">${escapeHtml(exercise.name)}</div>
                 <div class="exercise-meta">${exercise.sets} sets · ${escapeHtml(exercise.reps)} reps${exercise.target ? ` · Target ${escapeHtml(exercise.target)}` : ""}</div>
               </div>
-              <input name="weight_${exercise.id}" value="${escapeAttr(entry.weight || "")}" placeholder="kg" style="width:80px;font-family:'JetBrains Mono',monospace;font-size:13px;padding:9px 11px"/>
+              <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px">
+                <input name="weight_${exercise.id}" value="${escapeAttr(entry.weight || "")}" placeholder="kg" style="width:80px;font-family:'JetBrains Mono',monospace;font-size:13px;padding:9px 11px;text-align:center"/>
+                <span style="font-size:10px;font-family:'JetBrains Mono',monospace;color:${allDone ? 'var(--lime)' : doneCount > 0 ? 'var(--gold)' : 'var(--text-3)'}" id="set-counter-${exercise.id}">${doneCount > 0 ? doneCount + '/' + totalSets + ' done' : totalSets + ' sets'}</span>
+              </div>
             </div>
             <div class="exercise-history" style="margin-top:10px">
               <div class="exercise-history-row">
@@ -2358,22 +2426,18 @@
               <form class="grid" id="login-form">
                 <label><span>Username</span><input name="username" required autocomplete="username"/></label>
                 <label><span>Password</span><input type="password" name="password" required autocomplete="current-password"/></label>
-                <button class="action-btn" type="submit" style="width:100%;justify-content:center">Sign In →</button>
+                <button class="action-btn" type="submit" id="login-submit-btn" style="width:100%;justify-content:center">Sign In →</button>
               </form>
               <div style="margin-top:16px">${flash}</div>
               ${state.needsAdminBootstrap ? `
                 <div class="divider-label" style="margin:24px 0 20px">First Time Setup</div>
                 <div class="card">
-                  <h3>Create Platform Account</h3>
-                  <p class="subtle" style="margin-bottom:14px">Create the app owner (superadmin) or a single gym admin.</p>
+                  <h3>Create First Admin</h3>
+                  <p class="subtle" style="margin-bottom:14px">No admin exists yet. Create one to get started.</p>
                   <form class="grid" id="bootstrap-admin-form">
-                    <label><span>Username</span><input name="username" required/></label>
-                    <label><span>Password</span><input type="password" name="password" required/></label>
-                    <label style="display:flex;align-items:center;gap:8px;margin-top:4px">
-                      <input type="checkbox" name="superadmin" style="width:16px;height:16px"/>
-                      <span style="display:inline;font-size:13px;color:var(--text);text-transform:none;letter-spacing:0">I am the app owner (superadmin)</span>
-                    </label>
-                    <button class="ghost-btn" type="submit" style="width:100%;justify-content:center">Create Account</button>
+                    <label><span>Admin username</span><input name="username" required/></label>
+                    <label><span>Admin password</span><input type="password" name="password" required/></label>
+                    <button class="ghost-btn" type="submit" style="width:100%;justify-content:center">Create Admin Account</button>
                   </form>
                 </div>
               ` : ""}
@@ -2410,25 +2474,15 @@
           await changePassword(ev);
           if(!state.error && state.me){
             state.me.mustChangePassword = false;
-            if(state.me.role === "superadmin") setRoute("/superadmin");
-            else if(state.me.role === "admin") setRoute("/admin");
-            else setRoute("/app");
+            setRoute(state.me.role === "admin" ? "/admin" : "/app");
           }
         };
         return;
       }
 
-      const isSuperAdmin = state.me?.role === "superadmin";
-      const isAdmin = state.me?.role === "admin" || isSuperAdmin;
-      const isImpersonating = isSuperAdmin && state.route.startsWith("/admin");
+      const isAdmin = state.me?.role === "admin";
       const app = state.appData || {};
-      const nav = isImpersonating ? [
-        ["/admin", "Gym Dashboard"],
-        ...(state.adminClientDetail ? [[state.route, "Client Detail"]] : [])
-      ] : isSuperAdmin ? [
-        ["/superadmin", "All Gyms"],
-        ...(state.superadminGymDetail ? [[state.route, "Gym Detail"]] : [])
-      ] : isAdmin ? [
+      const nav = isAdmin ? [
         ["/admin", "Dashboard"],
         ...(state.adminClientDetail ? [[state.route, "Client Detail"]] : [])
       ] : [
@@ -2441,122 +2495,7 @@
 
       let content = "";
 
-      /* ─── SUPERADMIN DASHBOARD ─── */
-      if(isSuperAdmin && !isImpersonating){
-        const sd = state.superadminData;
-        const gymDetail = state.superadminGymDetail;
-
-        if(gymDetail){
-          const gym = gymDetail.gym;
-          const clients = gymDetail.clients || [];
-          const admin = gymDetail.admin;
-          content = `
-            <div class="panel">
-              <div class="toolbar">
-                <div>
-                  <div class="section-eyebrow">Gym Detail</div>
-                  <div class="section-title">${escapeHtml(gym.name)}</div>
-                  <div class="section-sub">${escapeHtml(gym.city || "")}${gym.city ? " · " : ""}${escapeHtml(gym.owner_name)} · Admin: <strong>${escapeHtml(admin?.username || "—")}</strong></div>
-                </div>
-                <div class="inline">
-                  <button class="action-btn" id="manage-gym-btn" data-gym-id="${gym.id}">⚙ Manage as Admin →</button>
-                  <button class="ghost-btn ${gym.status === 'active' ? 'danger' : 'teal'}" id="toggle-gym-status" data-gym-id="${gym.id}" data-status="${gym.status}">
-                    ${gym.status === 'active' ? 'Suspend' : '✓ Reactivate'}
-                  </button>
-                </div>
-              </div>
-              ${flash}
-              <div class="grid cols-3" style="margin-top:16px">
-                <div class="stat-card"><div class="stat-icon">👥</div><div class="stat-value">${clients.length}</div><div class="stat-name">Total Clients</div></div>
-                <div class="stat-card"><div class="stat-icon">📋</div><div class="stat-value">${clients.filter(c => c.plan_status === 'published').length}</div><div class="stat-name">Active Plans</div></div>
-                <div class="stat-card"><div class="stat-icon">💤</div><div class="stat-value">${clients.filter(c => !c.last_log_date).length}</div><div class="stat-name">Never Logged</div></div>
-              </div>
-              <div class="notice warning" style="margin-top:16px;font-size:12.5px">
-                💡 Click <strong>Manage as Admin</strong> above to enter this gym's admin panel and manage clients, plans, and intakes directly.
-              </div>
-              <div class="card" style="margin-top:16px">
-                <h3>👥 Clients (${clients.length})</h3>
-                ${clients.length ? `
-                  <table class="table" style="margin-top:10px">
-                    <thead><tr><th>Client</th><th>Username</th><th>Plan</th><th>Last Log</th></tr></thead>
-                    <tbody>
-                      ${clients.map(c => `
-                        <tr>
-                          <td><div class="name">${escapeHtml(c.full_name)}</div></td>
-                          <td><div class="username">@${escapeHtml(c.username || "")}</div></td>
-                          <td><span class="pill ${c.plan_status === 'published' ? 'published' : c.plan_status === 'draft' ? 'draft' : 'none'}">${c.plan_status || "none"}</span></td>
-                          <td style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-3)">${c.last_log_date || "—"}</td>
-                        </tr>
-                      `).join("")}
-                    </tbody>
-                  </table>
-                ` : '<div class="empty">No clients yet.</div>'}
-              </div>
-            </div>
-          `;
-        } else {
-          const gyms = sd?.gyms || [];
-          const stats = sd?.stats || {};
-          content = `
-            <div class="panel">
-              <div class="toolbar">
-                <div>
-                  <div class="section-eyebrow">App Owner · Platform Overview</div>
-                  <div class="section-title">All Gyms</div>
-                </div>
-              </div>
-              ${flash}
-              <div class="grid cols-3" style="margin-top:20px">
-                <div class="stat-card"><div class="stat-icon">🏢</div><div class="stat-value">${stats.totalGyms || 0}</div><div class="stat-name">Total Gyms</div></div>
-                <div class="stat-card"><div class="stat-icon">👥</div><div class="stat-value">${stats.totalClients || 0}</div><div class="stat-name">Total Clients</div></div>
-                <div class="stat-card"><div class="stat-icon">📋</div><div class="stat-value">${stats.totalActivePlans || 0}</div><div class="stat-name">Active Plans</div></div>
-              </div>
-              <div class="split" style="margin-top:20px">
-                <div class="card">
-                  <h3>🏢 Gyms</h3>
-                  ${gyms.length ? `
-                    <table class="table" style="margin-top:10px">
-                      <thead><tr><th>Gym</th><th>Owner</th><th>Clients</th><th>Plans</th><th>Status</th><th></th></tr></thead>
-                      <tbody>
-                        ${gyms.map(g => `
-                          <tr>
-                            <td><div class="name">${escapeHtml(g.name)}</div><div class="username">${escapeHtml(g.city || "")}</div></td>
-                            <td style="font-size:13px">${escapeHtml(g.owner_name)}</td>
-                            <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--teal)">${g.client_count || 0}</td>
-                            <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--lime)">${g.active_plans || 0}</td>
-                            <td><span class="pill ${g.status === 'active' ? 'active' : 'alert'}">${g.status}</span></td>
-                            <td><button class="ghost-btn open-gym" data-gym-id="${g.id}" style="padding:7px 12px;font-size:12px">View →</button></td>
-                          </tr>
-                        `).join("")}
-                      </tbody>
-                    </table>
-                  ` : '<div class="empty" style="margin-top:12px">No gyms yet. Add the first one below.</div>'}
-                </div>
-                <div class="card">
-                  <h3>➕ Add New Gym</h3>
-                  <form class="grid" id="create-gym-form" style="margin-top:8px">
-                    <label><span>Gym name</span><input name="gymName" required placeholder="e.g. FitZone Gym"/></label>
-                    <label><span>Owner name</span><input name="ownerName" required placeholder="e.g. Rahul Sharma"/></label>
-                    <div class="grid cols-2">
-                      <label><span>City</span><input name="city" placeholder="e.g. Chennai"/></label>
-                      <label><span>Phone</span><input name="phone" placeholder="e.g. 9876543210"/></label>
-                    </div>
-                    <label><span>Owner email</span><input name="email" type="email" placeholder="e.g. rahul@fitzoneym.com"/></label>
-                    <label><span>Admin username</span><input name="adminUsername" required placeholder="e.g. fitzone.admin"/></label>
-                    <button class="action-btn" type="submit">Create Gym</button>
-                  </form>
-                  ${state.draftPassword ? `
-                    <div class="temp-password-box">
-                      <div class="temp-password-label">⚡ Gym Admin Temp Password — save this now</div>
-                      <div class="temp-password-value">${escapeHtml(state.draftPassword)}</div>
-                    </div>
-                  ` : ""}
-                </div>
-              </div>
-            </div>
-          `;
-        }
-      } else if(isAdmin){
+      if(isAdmin){
         /* ─── ADMIN DASHBOARD ─── */
         if(path === "/admin"){
           const review = reviewSummary(state.clients);
@@ -2792,22 +2731,25 @@
           })();
           const checkedInThisWeek = (app.checkins || []).some(c => (c.checkin_date || "") >= thisWeekStart);
 
-          function missionItem(done, text, sub){
-            return `<div style="display:flex;align-items:flex-start;gap:12px;padding:11px 0;border-bottom:1px solid var(--border)">
+          function missionItem(done, text, sub, route){
+            const clickable = !done && route;
+            return `<div style="display:flex;align-items:flex-start;gap:12px;padding:11px 0;border-bottom:1px solid var(--border);${clickable ? 'cursor:pointer;' : ''}" ${clickable ? `onclick="setRoute('${route}')"` : ''}>
               <div style="width:22px;height:22px;border-radius:50%;border:2px solid ${done ? 'var(--lime)' : 'var(--border-bright)'};background:${done ? 'rgba(95,222,122,.15)' : 'transparent'};display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;font-size:11px">${done ? '✓' : ''}</div>
-              <div>
+              <div style="flex:1">
                 <div style="font-size:13.5px;font-weight:700;color:${done ? 'var(--text-2)' : 'var(--text)'};text-decoration:${done ? 'line-through' : 'none'}">${text}</div>
                 ${sub ? `<div style="font-size:11px;color:var(--text-3);margin-top:2px">${sub}</div>` : ''}
               </div>
+              ${clickable ? `<div style="font-size:18px;color:var(--text-3);align-self:center">›</div>` : ''}
             </div>`;
           }
 
-          function macroBar(label, current, target, color){
+          function macroBar(label, current, target, color, unit){
             const pct = target > 0 ? Math.min(100, Math.round((current/target)*100)) : 0;
+            const unitLabel = unit || "";
             return `<div style="margin-bottom:12px">
               <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
                 <span style="font-size:12px;color:var(--text-2)">${label}</span>
-                <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:${color}">${current}${target > 0 ? ` / ${target}` : ''}</span>
+                <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:${color}">${current}${unitLabel} / ${target}${unitLabel} <span style="color:var(--text-3)">(${pct}%)</span></span>
               </div>
               <div style="height:5px;background:var(--surface-3);border-radius:99px;overflow:hidden">
                 <div style="height:100%;width:${pct}%;background:${color};border-radius:99px;transition:width .4s ease"></div>
@@ -2907,8 +2849,8 @@
                       <div class="client-hero-name">${escapeHtml(app.client?.full_name?.split(" ")[0] || "there")}</div>
                     </div>
                     <div style="text-align:right">
-                      <div style="font-family:'Outfit',sans-serif;font-size:28px;font-weight:900;line-height:1;color:${streak > 0 ? 'var(--accent)' : 'var(--text-3)'}">${streak > 0 ? streak + ' 🔥' : '—'}</div>
-                      <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.1em;margin-top:3px">day streak</div>
+                      <div style="font-family:'Outfit',sans-serif;font-size:28px;font-weight:900;line-height:1;color:${streak > 0 ? 'var(--accent)' : 'var(--text-3)'}">${streak > 0 ? streak + ' 🔥' : '0 🔥'}</div>
+                      <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.1em;margin-top:3px">${streak > 0 ? 'day streak' : 'start today'}</div>
                     </div>
                   </div>
                 </div>
@@ -2916,10 +2858,10 @@
                 <div class="client-panel">
                   <div class="client-panel-eyebrow">Today's Mission</div>
                   <div style="margin-top:2px">
-                    ${missionItem(mealLogged, "Log today's meals", mealLogged ? "Meals recorded" : "Go to Diet tab and select your meals")}
-                    ${missionItem(workoutLogged, "Complete today's workout", workoutLogged ? "Workout done" : "Go to Workout tab and log your session")}
-                    ${missionItem(waterLogged, "Drink 2L of water", waterLogged ? `${dailyLog.hydration}L logged` : `${dailyLog.hydration || 0}L logged so far — update in Diet tab`)}
-                    ${missionItem(checkedInThisWeek, "Weekly check-in", checkedInThisWeek ? "Done this week" : "Log your weight in Workout tab → Check-in")}
+                    ${missionItem(mealLogged, "Log today's meals", mealLogged ? "Meals recorded ✓" : "Tap to open Diet tab", "/app/diet")}
+                    ${missionItem(workoutLogged, "Complete today's workout", workoutLogged ? "Workout done ✓" : "Tap to open Workout tab", "/app/workout")}
+                    ${missionItem(waterLogged, "Drink 2L of water", waterLogged ? `${dailyLog.hydration}L logged ✓` : `${dailyLog.hydration || 0}L so far — tap to update in Diet`, "/app/diet")}
+                    ${missionItem(checkedInThisWeek, "Weekly check-in", checkedInThisWeek ? "Done this week ✓" : "Tap to log weight in Workout tab", "/app/workout")}
                   </div>
                 </div>
 
@@ -2927,8 +2869,8 @@
                   <div class="client-panel-eyebrow">Today's Nutrition</div>
                   ${calorieTarget > 0 ? `
                     <div style="margin-top:12px">
-                      ${macroBar("Calories", caloriesLogged, calorieTarget, "var(--accent)")}
-                      ${macroBar("Protein (g)", proteinLogged, proteinTarget, "var(--teal)")}
+                      ${macroBar("Calories", caloriesLogged, calorieTarget, "var(--accent)", " kcal")}
+                      ${macroBar("Protein", proteinLogged, proteinTarget, "var(--teal)", "g")}
                     </div>
                     ${!loggedToday ? `<div style="font-size:12px;color:var(--text-3);margin-top:4px;font-style:italic">Log today's meals in the Diet tab to update these.</div>` : ''}
                   ` : `<div class="empty" style="margin-top:10px">Macro targets will appear once your plan is published.</div>`}
@@ -2970,7 +2912,7 @@
                 <div class="client-panel">
                   <div class="client-panel-eyebrow">Diet Log</div>
                   <h3 style="margin-top:4px">Today's Meals</h3>
-                  <div class="exercise-history-meta" id="autosave-status" style="margin-top:5px">${state.autoSaveStatus || "Changes auto-save while you type."}</div>
+                  <div style="display:none" id="autosave-status-top"></div>
                   ${app.householdScale ? `
                     <div style="margin-top:8px;padding:10px 12px;background:rgba(0,203,168,.08);border:1px solid rgba(0,203,168,.2);border-radius:10px;font-size:12px;color:var(--teal);line-height:1.6">
                       🏠 <strong>Shared family meals</strong> — same dishes as ${escapeHtml(app.householdScale.memberName)}.
@@ -3005,6 +2947,7 @@
                   </div>
                   <div class="grid" style="margin-top:12px">
                     <label><span>📝 Notes</span><textarea name="notes" placeholder="How did today go?">${escapeHtml(dailyLog.notes || "")}</textarea></label>
+                    <div id="autosave-status" style="font-size:12px;color:var(--teal);min-height:16px;text-align:center;margin-bottom:4px">${state.autoSaveStatus || ""}</div>
                     <button class="action-btn" type="submit" style="width:100%;justify-content:center">Save Diet Log</button>
                   </div>
                 </div>
@@ -3034,8 +2977,8 @@
                   <label style="margin-top:10px;display:flex;align-items:center;gap:8px"><input type="checkbox" name="workoutCompleted" ${dailyLog.workout_json?.completed ? "checked" : ""}/> <span style="display:inline;font-size:13.5px;color:var(--text);text-transform:none;letter-spacing:0">Workout completed</span></label>
                 </div>
                 <div class="workout-submit-bar">
-                  <div class="workout-status" id="workout-draft-status">${workoutDraftStatus || "Tap sets and enter weight, then press Submit Workout."}</div>
-                  <button class="action-btn" type="submit" style="width:100%;justify-content:center">Submit Workout →</button>
+                  <div class="workout-status" id="workout-draft-status">${workoutDraftStatus || "Tap each set as you complete it. Press Save Session when your workout is done."}</div>
+                  <button class="action-btn" type="submit" style="width:100%;justify-content:center">💾 Save Session</button>
                 </div>
               </form>
               <div class="grid cols-2">
@@ -3082,21 +3025,15 @@
       }
 
       /* ─── SHELL WRAPPER ─── */
-      const eyebrow = isImpersonating
-        ? "Managing Gym · " + (state.superadminGymDetail?.gym?.name || "Gym")
-        : isSuperAdmin ? "App Owner · Superadmin" : "Admin Console";
-      const brandTitle = isSuperAdmin && !isImpersonating ? "GymLog Platform" : "Fitness Platform";
-
       root.innerHTML = isAdmin ? `
         <div class="app-shell">
           <div class="topbar">
             <div class="brand">
-              <div class="brand-eyebrow">${eyebrow}</div>
-              <h1>${brandTitle}</h1>
-              <div class="brand-sub">Signed in as <strong>${state.me?.username || ""}</strong>${isImpersonating ? ' · <span style="color:var(--gold)">⚙ Managing gym as admin</span>' : ''}</div>
+              <div class="brand-eyebrow">Admin Console</div>
+              <h1>Fitness Platform</h1>
+              <div class="brand-sub">Signed in as <strong>${state.me?.username || ""}</strong></div>
             </div>
             <div class="top-actions">
-              ${isImpersonating ? `<button class="ghost-btn teal" id="exit-impersonation-btn">← Back to All Gyms</button>` : ""}
               <button class="ghost-btn" id="logout-btn">Sign Out</button>
             </div>
           </div>
@@ -3104,7 +3041,7 @@
             <aside class="sidebar">
               <div class="sidebar-label">Navigation</div>
               <nav>
-                ${nav.map(([href, label]) => `<button class="nav-btn ${path === href ? "active" : ""}" data-nav="${href}"><span class="nav-icon">${href.startsWith("/superadmin") ? "◆" : href === "/admin" ? "⬡" : "◈"}</span>${label}</button>`).join("")}
+                ${nav.map(([href, label]) => `<button class="nav-btn ${path === href ? "active" : ""}" data-nav="${href}"><span class="nav-icon">${href === "/admin" ? "⬡" : "◈"}</span>${label}</button>`).join("")}
               </nav>
             </aside>
             <main>${content}</main>
@@ -3143,45 +3080,9 @@
       const logoutBtn = document.getElementById("logout-btn");
       if(logoutBtn) logoutBtn.onclick = logout;
 
-      // Superadmin exit impersonation
-      const exitBtn = document.getElementById("exit-impersonation-btn");
-      if(exitBtn) exitBtn.onclick = () => { setRoute("/superadmin"); };
-
-      // Superadmin all-gyms view
-      if(isSuperAdmin && !isImpersonating && path === "/superadmin"){
-        const createGymForm = document.getElementById("create-gym-form");
-        if(createGymForm) createGymForm.onsubmit = createGym;
-        document.querySelectorAll(".open-gym").forEach(btn => btn.onclick = () => setRoute("/superadmin/gyms/" + btn.dataset.gymId));
-      }
-
-      // Superadmin gym detail view
-      if(isSuperAdmin && !isImpersonating && state.superadminGymDetail){
-        const manageBtn = document.getElementById("manage-gym-btn");
-        if(manageBtn) manageBtn.onclick = async () => {
-          const gymId = manageBtn.dataset.gymId;
-          // Load clients for this gym in admin view context
-          try {
-            state.clients = (await api("/api/admin/clients?gym_override=" + gymId, { method: "GET", headers: {} })).clients;
-          } catch(e) {
-            state.clients = [];
-          }
-          setRoute("/admin");
-        };
-        const toggleBtn = document.getElementById("toggle-gym-status");
-        if(toggleBtn) toggleBtn.onclick = () => toggleGymStatus(toggleBtn.dataset.gymId, toggleBtn.dataset.status);
-      }
-
-      if(isAdmin && !isSuperAdmin && path === "/admin"){
+      if(isAdmin && path === "/admin"){
         document.getElementById("create-client-form").onsubmit = createClient;
         document.getElementById("export-all").onclick = () => exportSheets(null);
-        document.querySelectorAll(".open-client").forEach(btn => btn.onclick = () => setRoute("/admin/clients/" + btn.dataset.clientId));
-      }
-
-      if(isImpersonating && path === "/admin"){
-        const createClientForm = document.getElementById("create-client-form");
-        if(createClientForm) createClientForm.onsubmit = createClient;
-        const exportAllBtn = document.getElementById("export-all");
-        if(exportAllBtn) exportAllBtn.onclick = () => exportSheets(null);
         document.querySelectorAll(".open-client").forEach(btn => btn.onclick = () => setRoute("/admin/clients/" + btn.dataset.clientId));
       }
 
