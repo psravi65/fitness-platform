@@ -909,7 +909,14 @@
         if(state.me && state.me.role === "superadmin" && !state.activeAdminGymId && state.superadminData && state.superadminData.gyms && state.superadminData.gyms[0]){
           state.activeAdminGymId = state.superadminData.gyms[0].id;
         }
-        state.clients = (await api("/api/admin/clients", { method: "GET", headers: {} })).clients;
+        try {
+          state.clients = (await api("/api/admin/clients", { method: "GET", headers: {} })).clients;
+        } catch(err) {
+          setFlash("Could not load clients: " + err.message, true);
+          state.clients = [];
+          render();
+          return;
+        }
         const match = path.match(/^\/admin\/clients\/([^/]+)$/);
         if(match){
           state.adminClientDetail = await api("/api/admin/clients/" + match[1], { method: "GET", headers: {} });
