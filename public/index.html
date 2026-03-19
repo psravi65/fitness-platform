@@ -908,7 +908,9 @@
         state.appData = await api("/api/app/bootstrap", { method: "GET", headers: {} });
       } else {
         if(state.me){
-          setRoute(state.me.role === "admin" ? "/admin" : "/app");
+          if(state.me.role === "superadmin") setRoute("/superadmin");
+          else if(state.me.role === "admin") setRoute("/admin");
+          else setRoute("/app");
           return;
         }
         setRoute("/login");
@@ -2373,7 +2375,9 @@
           await changePassword(ev);
           if(!state.error && state.me){
             state.me.mustChangePassword = false;
-            setRoute(state.me.role === "admin" ? "/admin" : "/app");
+            if(state.me.role === "superadmin") setRoute("/superadmin");
+            else if(state.me.role === "admin") setRoute("/admin");
+            else setRoute("/app");
           }
         };
         return;
