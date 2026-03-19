@@ -673,11 +673,11 @@
       border-color:rgba(95,222,122,.35);
       color:var(--lime);
     }
-    .meal-card-picker { display:grid; gap:8px; margin-top:4px; }
-    .meal-option-card { padding:12px 14px; border-radius:10px; background:var(--surface-2); border:1.5px solid var(--border); cursor:pointer; transition:border-color .15s, background .15s; }
-    .meal-option-card:hover { border-color:var(--accent); background:rgba(255,92,40,.04); }
-    .meal-option-card.selected { border-color:var(--accent); background:rgba(255,92,40,.08); }
-    .meal-option-card.selected::before { content:"✓  "; color:var(--accent); font-weight:800; }
+    .meal-card-picker{display:grid;gap:8px;margin-top:4px}
+    .meal-option-card{padding:12px 14px;border-radius:10px;background:var(--surface-2);border:1.5px solid var(--border);cursor:pointer;transition:border-color .15s,background .15s}
+    .meal-option-card:hover{border-color:var(--accent);background:rgba(255,92,40,.04)}
+    .meal-option-card.selected{border-color:var(--accent);background:rgba(255,92,40,.08)}
+    .meal-option-card.selected::before{content:"✓  ";color:var(--accent);font-weight:800}
     .exercise-card{
       background:var(--surface-2);
       border:1px solid var(--border);
@@ -851,7 +851,6 @@
 
     function requireAuth(role){
       if(!state.me){ setRoute("/login"); return false; }
-      // Superadmin can access admin routes — they also run their own gym
       if(role === "admin" && state.me.role === "superadmin") return true;
       if(role && state.me.role !== role){
         if(state.me.role === "superadmin") setRoute("/superadmin");
@@ -925,8 +924,6 @@
 
     async function handleLogin(ev){
       ev.preventDefault();
-      const btn = document.getElementById("login-submit-btn");
-      if(btn){ btn.disabled = true; btn.textContent = "Signing in…"; }
       const form = new FormData(ev.target);
       try{
         const res = await api("/api/auth/login", {
@@ -945,8 +942,6 @@
         setRoute(dest);
       }catch(err){
         setFlash(err.message, true);
-        const btnR = document.getElementById("login-submit-btn");
-        if(btnR){ btnR.disabled = false; btnR.textContent = "Sign In →"; }
       }
     }
 
@@ -956,61 +951,37 @@
       picker.querySelectorAll(".meal-option-card").forEach(c => c.classList.remove("selected"));
       el.classList.add("selected");
       const hidden = picker.querySelector("input[type='hidden']");
-      if(hidden){ hidden.value = el.dataset.value || ""; hidden.dispatchEvent(new Event("change", { bubbles: true })); }
+      if(hidden){ hidden.value = el.dataset.value || ""; hidden.dispatchEvent(new Event("change",{bubbles:true})); }
       const form = picker.closest("form");
       if(form && typeof updateMacroInputsFromMeals === "function") updateMacroInputsFromMeals(form);
     }
-
     function bindSetCounters(){
       document.querySelectorAll(".set-check:not([data-bound])").forEach(cb => {
         cb.dataset.bound = "1";
         cb.addEventListener("change", () => {
-          const exId = cb.dataset.exerciseId;
-          if(!exId) return;
-          const container = cb.closest(".exercise-card");
-          if(!container) return;
+          const exId = cb.dataset.exerciseId; if(!exId) return;
+          const container = cb.closest(".exercise-card"); if(!container) return;
           const allChecks = container.querySelectorAll(`.set-check[data-exercise-id="${exId}"]`);
           const states = Array.from(allChecks).map(c => c.checked);
           const hidden = container.querySelector(`input[name="sets_${exId}"]`);
           if(hidden) hidden.value = JSON.stringify(states);
           allChecks.forEach(c => c.closest(".set-toggle-wrap")?.classList.toggle("active", c.checked));
           const counter = document.getElementById(`set-counter-${exId}`);
-          if(counter){
-            const done = states.filter(Boolean).length;
-            const total = states.length;
-            counter.textContent = done > 0 ? `${done}/${total} done` : `${total} sets`;
-            counter.style.color = done === total && total > 0 ? "var(--lime)" : done > 0 ? "var(--gold)" : "var(--text-3)";
-          }
+          if(counter){ const d=states.filter(Boolean).length,t=states.length; counter.textContent=d>0?`${d}/${t} done`:`${t} sets`; counter.style.color=d===t&&t>0?"var(--lime)":d>0?"var(--gold)":"var(--text-3)"; }
         });
       });
       document.querySelectorAll(".cardio-done-check:not([data-bound])").forEach(cb => {
-        cb.dataset.bound = "1";
-        cb.addEventListener("change", () => {
-          const exId = cb.dataset.exerciseId;
-          if(!exId) return;
-          const container = cb.closest(".exercise-card");
-          const hidden = container?.querySelector(`input[name="sets_${exId}"]`);
-          if(hidden) hidden.value = JSON.stringify([cb.checked]);
-        });
+        cb.dataset.bound="1";
+        cb.addEventListener("change",()=>{ const exId=cb.dataset.exerciseId; if(!exId) return; const h=cb.closest(".exercise-card")?.querySelector(`input[name="sets_${exId}"]`); if(h) h.value=JSON.stringify([cb.checked]); });
       });
     }
-
     function bindIntakeScrollProgress(){
-      const bar = document.getElementById("intake-progress-bar");
-      const label = document.getElementById("intake-section-label");
-      const sections = document.querySelectorAll("[data-section-index]");
-      if(!bar || !sections.length) return;
-      const total = sections.length;
-      const obs = new IntersectionObserver(entries => {
-        let max = 0;
-        entries.forEach(e => { if(e.isIntersecting) max = Math.max(max, Number(e.target.dataset.sectionIndex)); });
-        bar.style.width = Math.round(((max+1)/total)*100) + "%";
-        const t = sections[max]?.dataset.sectionTitle || "";
-        if(label) label.textContent = `Section ${max+1} of ${total}${t ? " — " + t : ""}`;
-      }, { threshold: 0.3 });
-      sections.forEach(s => obs.observe(s));
+      const bar=document.getElementById("intake-progress-bar"), label=document.getElementById("intake-section-label"), sections=document.querySelectorAll("[data-section-index]");
+      if(!bar||!sections.length) return;
+      const total=sections.length;
+      const obs=new IntersectionObserver(entries=>{ let max=0; entries.forEach(e=>{if(e.isIntersecting) max=Math.max(max,Number(e.target.dataset.sectionIndex));}); bar.style.width=Math.round(((max+1)/total)*100)+"%"; const t=sections[max]?.dataset.sectionTitle||""; if(label) label.textContent=`Section ${max+1} of ${total}${t?" — "+t:""}`; },{threshold:0.3});
+      sections.forEach(s=>obs.observe(s));
     }
-
         async function bootstrapAdmin(ev){
       ev.preventDefault();
       const form = new FormData(ev.target);
@@ -1527,7 +1498,7 @@
           container.innerHTML = renderWorkoutExerciseCards(state.appData?.plan, selected, entries);
           bindWorkoutSetButtons(form);
         }
-        updateWorkoutDraftStatus(selected ? "Tap each set as you complete it. Press Save Session when done." : "Select today's workout to start logging.");
+        updateWorkoutDraftStatus(selected ? "Tap each set as you complete it. Press Save Session when your workout is done." : "Select today's workout to start logging.");
       };
       form.querySelector('[name="workoutSession"]')?.addEventListener("change", sync);
       form.addEventListener("input", () => {
@@ -1555,7 +1526,7 @@
         const current = exercise ? readExerciseSetState(form, exercise) : safeJson(hidden?.value, []);
         if(hidden) hidden.value = JSON.stringify(current);
         syncWorkoutFormToState(form);
-        updateWorkoutDraftStatus(`Set ${setIndex + 1} ${check.checked ? "✓ completed" : "cleared"}. Tap all sets then press Save Session.`);
+        updateWorkoutDraftStatus(`Set ${setIndex + 1} ${check.checked ? "completed" : "cleared"}. Tap all sets then press Save Session.`);
       };
     }
 
@@ -1965,18 +1936,13 @@
             <span style="font-size:12px;font-weight:600;color:var(--text-2)">Intake Form</span>
             <span id="intake-draft-indicator" style="font-size:11px;color:var(--teal)">✓ Draft auto-saved</span>
           </div>
-          <div style="height:4px;background:var(--surface-3);border-radius:99px;overflow:hidden">
-            <div id="intake-progress-bar" style="height:100%;width:${Math.round((1/totalSections)*100)}%;background:var(--accent);border-radius:99px;transition:width .4s ease"></div>
-          </div>
-          <div id="intake-section-label" style="font-size:11px;color:var(--text-3);margin-top:4px">Section 1 of ${totalSections} — ${intakeSections[0]?.title || ''}</div>
+          <div style="height:4px;background:var(--surface-3);border-radius:99px;overflow:hidden"><div id="intake-progress-bar" style="height:100%;width:${Math.round((1/totalSections)*100)}%;background:var(--accent);border-radius:99px;transition:width .4s ease"></div></div>
+          <div id="intake-section-label" style="font-size:11px;color:var(--text-3);margin-top:4px">Section 1 of ${totalSections} — ${intakeSections[0]?.title||''}</div>
         </div>
         <form class="grid" onsubmit="${onSubmit}" data-intake-clientid="${escapeAttr(clientId || '')}">
-          ${intakeSections.map((section, sIdx) => `
-            <div class="card" data-section-index="${sIdx}" data-section-title="${escapeAttr(section.title)}">
-              <h3 style="display:flex;align-items:center;gap:8px">
-                <span style="font-size:11px;font-family:'JetBrains Mono',monospace;padding:2px 7px;border-radius:99px;background:rgba(255,92,40,.1);color:var(--accent)">${sIdx+1}/${totalSections}</span>
-                ${section.title}
-              </h3>
+          ${intakeSections.map(section => `
+            <div class="card">
+              <h3>${section.title}</h3>
               <div class="grid cols-2" style="margin-top:14px">
                 ${section.fields.map(([field, label, meta]) => `
                   <label style="${(section.fields.length === 1 || meta?.type === 'textarea') ? 'grid-column:1/-1' : ''}">
@@ -2059,25 +2025,19 @@
           <input type="hidden" name="${escapeAttr(name)}" value="${escapeAttr(selectedValue || "")}"/>
           ${options.map(opt => {
             const norm = opt.label || opt.name || "";
-            const cal = Number(opt.calories || 0);
-            const pro = Number(opt.protein || 0);
-            const carb = Number(opt.carbs || 0);
-            const fat = Number(opt.fat || 0);
+            const cal = Number(opt.calories||0), pro = Number(opt.protein||0), carb = Number(opt.carbs||0), fat = Number(opt.fat||0);
             const sel = norm === selectedValue;
-            return `
-              <div class="meal-option-card ${sel ? 'selected' : ''}" data-value="${escapeAttr(norm)}" onclick="selectMealCard(this)">
-                <div style="font-size:13.5px;font-weight:700;color:var(--text);line-height:1.35;margin-bottom:7px">${escapeHtml(norm)}</div>
+            return `<div class="meal-option-card ${sel?'selected':''}" data-value="${escapeAttr(norm)}" onclick="selectMealCard(this)">
+                <div style="font-size:13.5px;font-weight:700;color:var(--text);margin-bottom:7px">${escapeHtml(norm)}</div>
                 <div style="display:flex;flex-wrap:wrap;gap:5px">
-                  ${cal > 0 ? `<span style="font-size:11px;font-family:'JetBrains Mono',monospace;padding:2px 8px;border-radius:99px;background:rgba(255,92,40,.12);color:var(--accent)">${cal} kcal</span>` : ""}
-                  ${pro > 0 ? `<span style="font-size:11px;font-family:'JetBrains Mono',monospace;padding:2px 8px;border-radius:99px;background:rgba(0,203,168,.12);color:var(--teal)">P ${pro}g</span>` : ""}
-                  ${carb > 0 ? `<span style="font-size:11px;font-family:'JetBrains Mono',monospace;padding:2px 8px;border-radius:99px;background:rgba(255,195,0,.12);color:var(--gold)">C ${carb}g</span>` : ""}
-                  ${fat > 0 ? `<span style="font-size:11px;font-family:'JetBrains Mono',monospace;padding:2px 8px;border-radius:99px;background:rgba(157,124,244,.12);color:var(--purple)">F ${fat}g</span>` : ""}
+                  ${cal>0?`<span style="font-size:11px;font-family:'JetBrains Mono',monospace;padding:2px 8px;border-radius:99px;background:rgba(255,92,40,.12);color:var(--accent)">${cal} kcal</span>`:""}
+                  ${pro>0?`<span style="font-size:11px;font-family:'JetBrains Mono',monospace;padding:2px 8px;border-radius:99px;background:rgba(0,203,168,.12);color:var(--teal)">P ${pro}g</span>`:""}
+                  ${carb>0?`<span style="font-size:11px;font-family:'JetBrains Mono',monospace;padding:2px 8px;border-radius:99px;background:rgba(255,195,0,.12);color:var(--gold)">C ${carb}g</span>`:""}
+                  ${fat>0?`<span style="font-size:11px;font-family:'JetBrains Mono',monospace;padding:2px 8px;border-radius:99px;background:rgba(157,124,244,.12);color:var(--purple)">F ${fat}g</span>`:""}
                 </div>
-              </div>
-            `;
+              </div>`;
           }).join("")}
-        </div>
-      `;
+        </div>`;
     }
 
     function findMealOption(plan, mealName, label){
@@ -2125,15 +2085,7 @@
       return `
         <select name="workoutSession">
           <option value="">Select today's workout</option>
-          ${sessions.map(item => {
-            const exs = (item.exercises || []).slice(0,3).map(e => {
-              const n = String(e || "").trim().split(/\s+[0-9]/)[0].trim();
-              return n.length > 18 ? n.slice(0,16) + "…" : n;
-            });
-            const label = item.focus || (exs.length ? exs.join(", ") : "");
-            const display = label ? `${escapeHtml(item.day)} — ${escapeHtml(label)}` : escapeHtml(item.day);
-            return `<option value="${escapeAttr(item.day)}" ${item.day === selectedValue ? "selected" : ""}>${display}</option>`;
-          }).join("")}
+          ${sessions.map(item => `<option value="${escapeAttr(item.day)}" ${item.day === selectedValue ? "selected" : ""}>${escapeHtml(item.day)}</option>`).join("")}
         </select>
       `;
     }
@@ -2175,7 +2127,6 @@
         const history = getExerciseHistory(state.appData?.recentWorkoutLogs, exercise.id);
         const lastWeight = history.length ? history[history.length - 1].weight : "";
 
-        // ── Stretch / mobility — plain checkbox, no sets, no weight ──
         if(exercise.isStretch){
           return `
             <div class="exercise-card" style="border-left:3px solid var(--purple)">
@@ -2190,11 +2141,9 @@
                 </label>
               </div>
               <input type="hidden" name="sets_${exercise.id}" value="${escapeAttr(JSON.stringify([entry.sets?.[0] || false]))}"/>
-            </div>
-          `;
+            </div>`;
         }
 
-        // ── Cardio — duration + intensity, single done checkbox ──
         if(exercise.isCardio){
           return `
             <div class="exercise-card" style="border-left:3px solid var(--teal)">
@@ -2219,11 +2168,9 @@
                   <input name="cardio_intensity_${exercise.id}" placeholder="e.g. moderate" style="font-size:13px;padding:10px 12px"/>
                 </label>
               </div>
-            </div>
-          `;
+            </div>`;
         }
 
-        // ── Strength — sets + weight + counter ──
         const doneCount = (entry.sets || []).filter(Boolean).length;
         const totalSets = exercise.sets;
         const allDone = doneCount === totalSets && totalSets > 0;
@@ -2255,8 +2202,7 @@
                 </label>
               `).join("")}
             </div>
-          </div>
-        `;
+          </div>`;
       }).join("");
       return warmupHtml + exerciseCards + cooldownHtml;
     }
@@ -2485,7 +2431,7 @@
               <form class="grid" id="login-form">
                 <label><span>Username</span><input name="username" required autocomplete="username"/></label>
                 <label><span>Password</span><input type="password" name="password" required autocomplete="current-password"/></label>
-                <button class="action-btn" type="submit" id="login-submit-btn" style="width:100%;justify-content:center">Sign In →</button>
+                <button class="action-btn" type="submit" style="width:100%;justify-content:center">Sign In →</button>
               </form>
               <div style="margin-top:16px">${flash}</div>
               ${state.needsAdminBootstrap ? `
@@ -2579,8 +2525,7 @@
           const clients = gymDetail.clients || [];
           const admin = gymDetail.admin;
           content = `
-              <div class="panel">
-              ${coachingBanner}
+            <div class="panel">
               <div class="toolbar">
                 <div>
                   <div class="section-eyebrow">Gym Detail</div>
@@ -2652,7 +2597,7 @@
                             <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--teal)">${g.client_count || 0}</td>
                             <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--lime)">${g.active_plans || 0}</td>
                             <td><span class="pill ${g.status === 'active' ? 'active' : 'alert'}">${g.status}</span></td>
-                            <td><button class="ghost-btn open-gym" data-gym-id="${g.id}" style="padding:7px 12px;font-size:12px">View →</button></td>
+                            <td><button class="ghost-btn" onclick="setRoute('/superadmin/gyms/${escapeAttr(g.id)}')" style="padding:7px 12px;font-size:12px">View →</button></td>
                           </tr>
                         `).join("")}
                       </tbody>
@@ -2690,6 +2635,7 @@
           const flaggedClients = state.clients.filter(c => (c.reviewFlags || []).length > 0);
           content = `
             <div class="panel">
+              ${coachingBanner}
               <div class="toolbar">
                 <div>
                   <div class="section-eyebrow">Overview</div>
@@ -2921,14 +2867,7 @@
 
           function missionItem(done, text, sub, route){
             const clickable = !done && route;
-            return `<div style="display:flex;align-items:flex-start;gap:12px;padding:11px 0;border-bottom:1px solid var(--border);${clickable ? 'cursor:pointer;' : ''}" ${clickable ? `onclick="setRoute('${route}')"` : ''}>
-              <div style="width:22px;height:22px;border-radius:50%;border:2px solid ${done ? 'var(--lime)' : 'var(--border-bright)'};background:${done ? 'rgba(95,222,122,.15)' : 'transparent'};display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;font-size:11px">${done ? '✓' : ''}</div>
-              <div style="flex:1">
-                <div style="font-size:13.5px;font-weight:700;color:${done ? 'var(--text-2)' : 'var(--text)'};text-decoration:${done ? 'line-through' : 'none'}">${text}</div>
-                ${sub ? `<div style="font-size:11px;color:var(--text-3);margin-top:2px">${sub}</div>` : ''}
-              </div>
-              ${clickable ? `<div style="font-size:18px;color:var(--text-3);align-self:center">›</div>` : ''}
-            </div>`;
+            return `<div style="display:flex;align-items:flex-start;gap:12px;padding:11px 0;border-bottom:1px solid var(--border);${clickable?'cursor:pointer;':''}" ${clickable?`onclick="setRoute('${route}')"`:''}><div style="width:22px;height:22px;border-radius:50%;border:2px solid ${done?'var(--lime)':'var(--border-bright)'};background:${done?'rgba(95,222,122,.15)':'transparent'};display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;font-size:11px">${done?'✓':''}</div><div style="flex:1"><div style="font-size:13.5px;font-weight:700;color:${done?'var(--text-2)':'var(--text)'};text-decoration:${done?'line-through':'none'}">${text}</div>${sub?`<div style="font-size:11px;color:var(--text-3);margin-top:2px">${sub}</div>`:''}</div>${clickable?`<div style="font-size:18px;color:var(--text-3);align-self:center">›</div>`:''}</div>`;
           }
 
           function macroBar(label, current, target, color, unit){
@@ -3049,7 +2988,7 @@
                     ${missionItem(mealLogged, "Log today's meals", mealLogged ? "Meals recorded ✓" : "Tap to open Diet tab", "/app/diet")}
                     ${missionItem(workoutLogged, "Complete today's workout", workoutLogged ? "Workout done ✓" : "Tap to open Workout tab", "/app/workout")}
                     ${missionItem(waterLogged, "Drink 2L of water", waterLogged ? `${dailyLog.hydration}L logged ✓` : `${dailyLog.hydration || 0}L so far — tap to update`, "/app/diet")}
-                    ${missionItem(checkedInThisWeek, "Weekly check-in", checkedInThisWeek ? "Done this week ✓" : "Tap to log weight in Workout tab", "/app/workout")}
+                    ${missionItem(checkedInThisWeek, "Weekly check-in", checkedInThisWeek ? "Done this week ✓" : "Tap to log weight", "/app/workout")}
                   </div>
                 </div>
 
@@ -3100,7 +3039,7 @@
                 <div class="client-panel">
                   <div class="client-panel-eyebrow">Diet Log</div>
                   <h3 style="margin-top:4px">Today's Meals</h3>
-                  <div style="display:none" id="autosave-status-top"></div>
+                  <div class="exercise-history-meta" id="autosave-status" style="margin-top:5px">${state.autoSaveStatus || "Changes auto-save while you type."}</div>
                   ${app.householdScale ? `
                     <div style="margin-top:8px;padding:10px 12px;background:rgba(0,203,168,.08);border:1px solid rgba(0,203,168,.2);border-radius:10px;font-size:12px;color:var(--teal);line-height:1.6">
                       🏠 <strong>Shared family meals</strong> — same dishes as ${escapeHtml(app.householdScale.memberName)}.
@@ -3135,7 +3074,6 @@
                   </div>
                   <div class="grid" style="margin-top:12px">
                     <label><span>📝 Notes</span><textarea name="notes" placeholder="How did today go?">${escapeHtml(dailyLog.notes || "")}</textarea></label>
-                    <div id="autosave-status" style="font-size:12px;color:var(--teal);min-height:16px;text-align:center;margin-bottom:4px">${state.autoSaveStatus || ""}</div>
                     <button class="action-btn" type="submit" style="width:100%;justify-content:center">Save Diet Log</button>
                   </div>
                 </div>
@@ -3218,8 +3156,8 @@
         : "Admin Console";
       const title = isSuperAdmin ? "GymLog Platform" : "Fitness Platform";
       const coachingBanner = isViewingAsAdmin ? `
-        <div style="margin-bottom:14px;padding:10px 16px;background:rgba(0,203,168,.08);border:1px solid rgba(0,203,168,.2);border-radius:10px;display:flex;align-items:center;justify-content:space-between;gap:12px">
-          <div style="font-size:13px;color:var(--teal)">⚙ You are managing <strong>${myGymName}</strong> as coach. <span style="color:var(--text-3);font-size:12px">Click ← Platform in the sidebar to return to the platform overview.</span></div>
+        <div style="margin-bottom:14px;padding:10px 16px;background:rgba(0,203,168,.08);border:1px solid rgba(0,203,168,.2);border-radius:10px;font-size:13px;color:var(--teal)">
+          ⚙ Managing <strong>${myGymName}</strong> as coach — click <strong>← Platform</strong> in the sidebar to return to platform overview.
         </div>
       ` : "";
 
@@ -3280,10 +3218,9 @@
       const logoutBtn = document.getElementById("logout-btn");
       if(logoutBtn) logoutBtn.onclick = logout;
 
-      if(isSuperAdmin && path === "/superadmin"){
+      if(isSuperAdmin && !path.startsWith("/admin")){
         const createGymForm = document.getElementById("create-gym-form");
         if(createGymForm) createGymForm.onsubmit = createGym;
-        document.querySelectorAll(".open-gym").forEach(btn => btn.onclick = () => setRoute("/superadmin/gyms/" + btn.dataset.gymId));
       }
       if(isSuperAdmin && state.superadminGymDetail){
         const toggleBtn = document.getElementById("toggle-gym-status");
