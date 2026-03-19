@@ -215,14 +215,10 @@ async function handleApi(request, env, ctx, url) {
   if (superadminResetAdminMatch && method === "POST") {
     assertRole(session, "superadmin");
     const gymId = superadminResetAdminMatch[1];
-    const adminUser = await env.DB.prepare(
-      `SELECT id FROM users WHERE gym_id = ? AND role = 'admin' LIMIT 1`
-    ).bind(gymId).first();
+    const adminUser = await env.DB.prepare(`SELECT id FROM users WHERE gym_id = ? AND role = 'admin' LIMIT 1`).bind(gymId).first();
     if (!adminUser) return json({ error: "No admin found for this gym." }, 404);
     const tempPassword = generateTempPassword();
-    await env.DB.prepare(
-      `UPDATE users SET password_hash = ?, must_change_password = 1 WHERE id = ?`
-    ).bind(await hashPassword(tempPassword), adminUser.id).run();
+    await env.DB.prepare(`UPDATE users SET password_hash = ?, must_change_password = 1 WHERE id = ?`).bind(await hashPassword(tempPassword), adminUser.id).run();
     return json({ ok: true, temporaryPassword: tempPassword });
   }
 
@@ -508,7 +504,6 @@ function assertRole(session, role) {
 }
 
 function getGymId(session, request) {
-  // superadmin passes X-Acting-Gym-Id header to scope to a specific gym
   if (session.user.role === "superadmin") {
     const override = request && request.headers && request.headers.get("X-Acting-Gym-Id");
     return override || null;
