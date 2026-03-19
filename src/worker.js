@@ -981,37 +981,63 @@ async function runAgentPipeline(env, intake, plan, householdContext = null) {
 async function refinePlanWithAgentFeedback(env, intake, plan, agentReviews, progressContext = {}, householdContext = null) {
   if (!env.GEMINI_API_KEY) return plan;
 
-  const issues = [];
-  const suggestions = [];
-  for (const agentKey of ["nutritionist", "fitnessExpert", "sportsScientist"]) {
-    const agent = agentReviews?.[agentKey];
-    if (!agent) continue;
-    if (Array.isArray(agent.issues)) agent.issues.forEach(i => issues.push(`[${agentKey}] ${i}`));
-    if (Array.isArray(agent.suggestions)) agent.suggestions.forEach(s => suggestions.push(`[${agentKey}] ${s}`));
+  // Collect issues per domain — only from agents that need attention or are flagged
+  const nutritionIssues = [];
+  const fitnessIssues = [];
+  const scienceIssues = [];
+
+  const nutritionist = agentReviews?.nutritionist;
+  const fitnessExpert = agentReviews?.fitnessExpert;
+  const sportsScientist = agentReviews?.sportsScientist;
+
+  if (nutritionist && nutritionist.status !== "approved") {
+    if (Array.isArray(nutritionist.issues)) nutritionIssues.push(...nutritionist.issues);
+    if (Array.isArray(nutritionist.suggestions)) nutritionIssues.push(...nutritionist.suggestions);
+  }
+  if (fitnessExpert && fitnessExpert.status !== "approved") {
+    if (Array.isArray(fitnessExpert.issues)) fitnessIssues.push(...fitnessExpert.issues);
+    if (Array.isArray(fitnessExpert.suggestions)) fitnessIssues.push(...fitnessExpert.suggestions);
+  }
+  if (sportsScientist && sportsScientist.status !== "approved") {
+    if (Array.isArray(sportsScientist.issues)) scienceIssues.push(...sportsScientist.issues);
+    if (Array.isArray(sportsScientist.suggestions)) scienceIssues.push(...sportsScientist.suggestions);
   }
 
-  if (issues.length === 0 && suggestions.length === 0) return plan;
+  const totalIssues = nutritionIssues.length + fitnessIssues.length + scienceIssues.length;
+  if (totalIssues === 0) return plan;
 
   const householdInstruction = householdContext
-    ? `HOUSEHOLD MEAL ALIGNMENT — MANDATORY: This client shares all meals with ${householdContext.memberName} (calorie target: ${householdContext.theirCalorieTarget} kcal). You MUST use the EXACT SAME meal dishes as the household reference plan — only scale portions and macros to this client's calorie target.\nHOUSEHOLD REFERENCE MEALS: ${JSON.stringify(householdContext.basePlan?.mealOptions || [])}`
+    ? `HOUSEHOLD MEAL ALIGNMENT — MANDATORY: This client shares all meals with ${householdContext.memberName} (calorie target: ${householdContext.theirCalorieTarget} kcal). You MUST use the EXACT SAME meal dishes as the household reference plan — only scale portions and macros.\nHOUSEHOLD REFERENCE MEALS: ${JSON.stringify(householdContext.basePlan?.mealOptions || [])}`
     : null;
 
+  const domainRules = [
+    nutritionIssues.length > 0
+      ? `NUTRITION FIXES (only change: calorieTarget, macros, mealOptions, weeklyMealStructure, supplements):\n${nutritionIssues.map((i, n) => `${n + 1}. ${i}`).join("\n")}`
+      : `NUTRITION: Already approved — do NOT change calorieTarget, macros, mealOptions, weeklyMealStructure, or supplements.`,
+
+    fitnessIssues.length > 0
+      ? `FITNESS FIXES (only change: workoutSplit exercises, warmup, cooldown):\n${fitnessIssues.map((i, n) => `${n + 1}. ${i}`).join("\n")}`
+      : `FITNESS: Already approved — do NOT change workoutSplit, exercises, warmup, or cooldown.`,
+
+    scienceIssues.length > 0
+      ? `PERIODISATION FIXES (only change: periodisation, deloadProtocol, progressionProtocol, progressMilestones, successRules):\n${scienceIssues.map((i, n) => `${n + 1}. ${i}`).join("\n")}`
+      : `PERIODISATION: Already approved — do NOT change periodisation, deloadProtocol, progressionProtocol, progressMilestones, or successRules.`
+  ];
+
   const prompt = [
-    "You are refining an AI-generated fitness coaching plan based on expert agent feedback.",
+    "You are refining an AI-generated fitness coaching plan based on domain-specific expert feedback.",
     "Return JSON only — same structure as the original plan.",
-    "Fix the issues listed and apply the suggestions where appropriate.",
-    "Do NOT change things that are already correct.",
+    "CRITICAL RULE: Each domain fix is strictly isolated. Only touch the fields listed under each domain's fix section.",
+    "If a domain says 'Already approved — do NOT change', leave every field in that domain exactly as it is in the original plan.",
+    "Copy approved sections verbatim from the original plan. Do not paraphrase or regenerate them.",
     ...(householdInstruction ? [householdInstruction] : []),
-    "ISSUES TO FIX:",
-    issues.map((i, n) => `${n + 1}. ${i}`).join("\n"),
-    "SUGGESTIONS TO APPLY:",
-    suggestions.map((s, n) => `${n + 1}. ${s}`).join("\n"),
-    "ORIGINAL PLAN:",
+    "",
+    ...domainRules,
+    "",
+    "ORIGINAL PLAN (copy approved sections exactly):",
     JSON.stringify(plan),
     "INTAKE DATA:",
     JSON.stringify(intake),
-    "RECENT PROGRESS:",
-    JSON.stringify(buildProgressSummary(progressContext)),
     "Return the refined plan in this exact shape:",
     JSON.stringify({
       profileSummary: "string",
@@ -1050,8 +1076,7 @@ async function refinePlanWithAgentFeedback(env, intake, plan, agentReviews, prog
       reason: "Plan refined with agent feedback.",
       model: env.GEMINI_MODEL || "gemini-2.5-flash",
       generatedAt: nowIso(),
-      issuesAddressed: issues.length,
-      suggestionsApplied: suggestions.length
+      issuesAddressed: totalIssues
     });
   } catch {
     return plan;
