@@ -211,6 +211,21 @@ async function handleApi(request, env, ctx, url) {
     return json({ gym, clients: clients.results || [], admin });
   }
 
+  const superadminResetAdminMatch = url.pathname.match(/^\/api\/superadmin\/gyms\/([^/]+)\/reset-admin-password$/);
+  if (superadminResetAdminMatch && method === "POST") {
+    assertRole(session, "superadmin");
+    const gymId = superadminResetAdminMatch[1];
+    const adminUser = await env.DB.prepare(
+      `SELECT id FROM users WHERE gym_id = ? AND role = 'admin' LIMIT 1`
+    ).bind(gymId).first();
+    if (!adminUser) return json({ error: "No admin found for this gym." }, 404);
+    const tempPassword = generateTempPassword();
+    await env.DB.prepare(
+      `UPDATE users SET password_hash = ?, must_change_password = 1 WHERE id = ?`
+    ).bind(await hashPassword(tempPassword), adminUser.id).run();
+    return json({ ok: true, temporaryPassword: tempPassword });
+  }
+
   if (superadminGymMatch && method === "PATCH") {
     assertRole(session, "superadmin");
     const body = await readJson(request);
@@ -235,7 +250,7 @@ async function handleApi(request, env, ctx, url) {
 
   if (url.pathname === "/api/admin/clients/all-for-household" && method === "GET") {
     assertRole(session, "admin");
-    const gymId = getGymId(session);
+    const gymId = getGymId(session, request);
     const rows = gymId
       ? await env.DB.prepare(`SELECT clients.id, clients.full_name, clients.household_id, users.username FROM clients LEFT JOIN users ON users.client_id = clients.id WHERE clients.gym_id = ? ORDER BY clients.full_name ASC`).bind(gymId).all()
       : await env.DB.prepare(`SELECT clients.id, clients.full_name, clients.household_id, users.username FROM clients LEFT JOIN users ON users.client_id = clients.id ORDER BY clients.full_name ASC`).all();
@@ -244,7 +259,7 @@ async function handleApi(request, env, ctx, url) {
 
   if (url.pathname === "/api/admin/clients" && method === "GET") {
     assertRole(session, "admin");
-    const gymId = getGymId(session);
+    const gymId = getGymId(session, request);
     const rows = await env.DB.prepare(`
       SELECT clients.id, clients.full_name, clients.status, users.username,
         COALESCE((SELECT status FROM plans WHERE client_id = clients.id ORDER BY updated_at DESC LIMIT 1), 'none') AS plan_status,
@@ -280,7 +295,7 @@ async function handleApi(request, env, ctx, url) {
     const tempPassword = generateTempPassword();
     const hash = await hashPassword(tempPassword);
 
-    const clientGymId = getGymId(session);
+    const clientGymId = getGymId(session, request);
     await env.DB.batch([
       env.DB.prepare(`INSERT INTO clients (id, full_name, status, gym_id) VALUES (?, ?, 'active', ?)`).bind(clientId, fullName, clientGymId),
       env.DB.prepare(`INSERT INTO users (id, username, password_hash, role, client_id, gym_id, must_change_password) VALUES (?, ?, ?, 'client', ?, ?, 1)`).bind(userId, username, hash, clientId, clientGymId)
@@ -492,8 +507,12 @@ function assertRole(session, role) {
   if (session.user.role !== role) throw new HttpError("Forbidden.", 403);
 }
 
-function getGymId(session) {
-  // superadmin has no gym_id — returns null (used to bypass filtering)
+function getGymId(session, request) {
+  // superadmin passes X-Acting-Gym-Id header to scope to a specific gym
+  if (session.user.role === "superadmin") {
+    const override = request && request.headers && request.headers.get("X-Acting-Gym-Id");
+    return override || null;
+  }
   return session.user.gym_id || null;
 }
 
