@@ -108,9 +108,18 @@ async function handleApi(request, env, ctx, url) {
     return json({ ok: true });
   }
 
+  if (url.pathname === "/api/admin/clients/all-for-household" && method === "GET") {
+    assertRole(session, "admin");
+    const rows = await env.DB.prepare(`
+      SELECT clients.id, clients.full_name, clients.household_id, users.username
+      FROM clients LEFT JOIN users ON users.client_id = clients.id
+      ORDER BY clients.full_name ASC
+    `).all();
+    return json({ clients: rows.results || [] });
+  }
 
   // ═══════════════════════════════════════════════════════════
-  //  SUPERADMIN ROUTES — app owner only
+  //  SUPERADMIN ROUTES
   // ═══════════════════════════════════════════════════════════
 
   if (url.pathname === "/api/superadmin/gyms" && method === "GET") {
@@ -118,14 +127,11 @@ async function handleApi(request, env, ctx, url) {
     const gyms = await env.DB.prepare(`
       SELECT gyms.*,
         COUNT(DISTINCT clients.id) AS client_count,
-        COUNT(DISTINCT CASE WHEN plans.status = 'published' THEN plans.id END) AS active_plans,
-        MAX(daily_logs.updated_at) AS last_activity
+        COUNT(DISTINCT CASE WHEN plans.status = 'published' THEN plans.id END) AS active_plans
       FROM gyms
       LEFT JOIN clients ON clients.gym_id = gyms.id
       LEFT JOIN plans ON plans.client_id = clients.id
-      LEFT JOIN daily_logs ON daily_logs.client_id = clients.id
-      GROUP BY gyms.id
-      ORDER BY gyms.created_at DESC
+      GROUP BY gyms.id ORDER BY gyms.created_at DESC
     `).all();
     const totalClients = await env.DB.prepare(`SELECT COUNT(*) AS count FROM clients`).first();
     const totalPlans = await env.DB.prepare(`SELECT COUNT(*) AS count FROM plans WHERE status = 'published'`).first();
@@ -144,21 +150,17 @@ async function handleApi(request, env, ctx, url) {
     const body = await readJson(request);
     const gymName = clean(body.gymName);
     const ownerName = clean(body.ownerName);
-    const email = clean(body.email);
+    const email = clean(body.email || "");
     const phone = clean(body.phone || "");
     const city = clean(body.city || "");
     const adminUsername = clean(body.adminUsername);
-    if (!gymName || !ownerName || !adminUsername) {
-      return json({ error: "Gym name, owner name and admin username are required." }, 400);
-    }
+    if (!gymName || !ownerName || !adminUsername) return json({ error: "Gym name, owner name and admin username are required." }, 400);
     const existing = await env.DB.prepare(`SELECT id FROM users WHERE username = ?`).bind(adminUsername).first();
     if (existing) return json({ error: "Username already taken." }, 409);
-
     const gymId = crypto.randomUUID();
     const adminId = crypto.randomUUID();
     const tempPassword = generateTempPassword();
     const hash = await hashPassword(tempPassword);
-
     await env.DB.batch([
       env.DB.prepare(`INSERT INTO gyms (id, name, owner_name, email, phone, city, status) VALUES (?, ?, ?, ?, ?, ?, 'active')`).bind(gymId, gymName, ownerName, email, phone, city),
       env.DB.prepare(`INSERT INTO users (id, username, password_hash, role, gym_id, must_change_password) VALUES (?, ?, ?, 'admin', ?, 1)`).bind(adminId, adminUsername, hash, gymId),
@@ -174,7 +176,7 @@ async function handleApi(request, env, ctx, url) {
     if (!gym) return json({ error: "Gym not found." }, 404);
     const clients = await env.DB.prepare(`
       SELECT clients.id, clients.full_name, clients.status, users.username,
-        COALESCE((SELECT status FROM plans WHERE client_id = clients.id ORDER BY updated_at DESC LIMIT 1), 'none') AS plan_status,
+        COALESCE((SELECT status FROM plans WHERE client_id = clients.id ORDER BY updated_at DESC LIMIT 1),'none') AS plan_status,
         (SELECT log_date FROM daily_logs WHERE client_id = clients.id ORDER BY log_date DESC LIMIT 1) AS last_log_date
       FROM clients LEFT JOIN users ON users.client_id = clients.id
       WHERE clients.gym_id = ? ORDER BY clients.created_at DESC
@@ -186,37 +188,15 @@ async function handleApi(request, env, ctx, url) {
   if (superadminGymMatch && method === "PATCH") {
     assertRole(session, "superadmin");
     const body = await readJson(request);
-    const gymId = superadminGymMatch[1];
-    if (body.status) {
-      await env.DB.prepare(`UPDATE gyms SET status = ? WHERE id = ?`).bind(body.status, gymId).run();
-    }
+    if (body.status) await env.DB.prepare(`UPDATE gyms SET status = ? WHERE id = ?`).bind(body.status, superadminGymMatch[1]).run();
     return json({ ok: true });
-  }
-
-  if (url.pathname === "/api/superadmin/me" && method === "GET") {
-    assertRole(session, "superadmin");
-    const stats = await env.DB.prepare(`
-      SELECT
-        (SELECT COUNT(*) FROM gyms WHERE status = 'active') AS active_gyms,
-        (SELECT COUNT(*) FROM clients) AS total_clients,
-        (SELECT COUNT(*) FROM plans WHERE status = 'published') AS active_plans,
-        (SELECT COUNT(*) FROM daily_logs WHERE date(updated_at) = date('now')) AS logs_today
-    `).first();
-    return json({ stats });
-  }
-
-  if (url.pathname === "/api/admin/clients/all-for-household" && method === "GET") {
-    assertRole(session, "admin");
-    const gymId = getGymId(session);
-    const rows = gymId
-      ? await env.DB.prepare(`SELECT clients.id, clients.full_name, clients.household_id, users.username FROM clients LEFT JOIN users ON users.client_id = clients.id WHERE clients.gym_id = ? ORDER BY clients.full_name ASC`).bind(gymId).all()
-      : await env.DB.prepare(`SELECT clients.id, clients.full_name, clients.household_id, users.username FROM clients LEFT JOIN users ON users.client_id = clients.id ORDER BY clients.full_name ASC`).all();
-    return json({ clients: rows.results || [] });
   }
 
   if (url.pathname === "/api/admin/clients" && method === "GET") {
     assertRole(session, "admin");
-    const gymId = getGymId(session);
+    // Support gym_override from superadmin managing a specific gym
+    const gymOverride = url.searchParams.get("gym_override");
+    const gymId = gymOverride || getGymId(session);
     const rows = await env.DB.prepare(`
       SELECT clients.id, clients.full_name, clients.status, users.username,
         COALESCE((SELECT status FROM plans WHERE client_id = clients.id ORDER BY updated_at DESC LIMIT 1), 'none') AS plan_status,
@@ -225,15 +205,11 @@ async function handleApi(request, env, ctx, url) {
         (SELECT updated_at FROM weekly_reviews WHERE client_id = clients.id ORDER BY updated_at DESC LIMIT 1) AS last_weekly_review_at,
         (SELECT notes FROM daily_logs WHERE client_id = clients.id AND TRIM(COALESCE(notes, '')) <> '' ORDER BY updated_at DESC LIMIT 1) AS latest_daily_note,
         (SELECT notes FROM checkins WHERE client_id = clients.id AND TRIM(COALESCE(notes, '')) <> '' ORDER BY updated_at DESC LIMIT 1) AS latest_checkin_note
-      FROM clients
-      LEFT JOIN users ON users.client_id = clients.id
+      FROM clients LEFT JOIN users ON users.client_id = clients.id
       ${gymId ? "WHERE clients.gym_id = ?" : ""}
       ORDER BY clients.created_at DESC
     `).bind(...(gymId ? [gymId] : [])).all();
-    const clients = (rows.results || []).map((client) => ({
-      ...client,
-      reviewFlags: buildReviewFlags(client)
-    }));
+    const clients = (rows.results || []).map(client => ({ ...client, reviewFlags: buildReviewFlags(client) }));
     return json({ clients });
   }
 
@@ -459,13 +435,12 @@ function assertAuthenticated(session) {
 
 function assertRole(session, role) {
   assertAuthenticated(session);
-  // superadmin can access all admin routes
-  if (session.user.role === "superadmin" && role === "admin") return;
+  if (role === "admin" && session.user.role === "superadmin") return;
   if (session.user.role !== role) throw new HttpError("Forbidden.", 403);
 }
 
 function getGymId(session) {
-  // superadmin has no gym_id — returns null (used to bypass filtering)
+  if (session.user.role === "superadmin") return null;
   return session.user.gym_id || null;
 }
 
