@@ -208,18 +208,38 @@ async function handleApi(request, env, ctx, url) {
       WHERE clients.gym_id = ? ORDER BY clients.created_at DESC
     `).bind(gymId).all();
     const admin = await env.DB.prepare(`SELECT id, username FROM users WHERE gym_id = ? AND role = 'admin' LIMIT 1`).bind(gymId).first();
-    return json({ gym, clients: clients.results || [], admin });
+    const unassignedRow = await env.DB.prepare(`SELECT COUNT(*) AS count FROM clients WHERE gym_id IS NULL`).first();
+    const unassignedCount = Number(unassignedRow?.count || 0);
+    return json({ gym, clients: clients.results || [], admin, unassignedCount });
   }
 
-  const superadminResetAdminMatch = url.pathname.match(/^\/api\/superadmin\/gyms\/([^/]+)\/reset-admin-password$/);
-  if (superadminResetAdminMatch && method === "POST") {
+  const superadminResetAdminPwdMatch = url.pathname.match(/^\/api\/superadmin\/gyms\/([^/]+)\/reset-admin-password$/);
+  if (superadminResetAdminPwdMatch && method === "POST") {
     assertRole(session, "superadmin");
-    const gymId = superadminResetAdminMatch[1];
+    const gymId = superadminResetAdminPwdMatch[1];
     const adminUser = await env.DB.prepare(`SELECT id FROM users WHERE gym_id = ? AND role = 'admin' LIMIT 1`).bind(gymId).first();
     if (!adminUser) return json({ error: "No admin found for this gym." }, 404);
     const tempPassword = generateTempPassword();
     await env.DB.prepare(`UPDATE users SET password_hash = ?, must_change_password = 1 WHERE id = ?`).bind(await hashPassword(tempPassword), adminUser.id).run();
     return json({ ok: true, temporaryPassword: tempPassword });
+  }
+
+  const superadminClaimMatch = url.pathname.match(/^\/api\/superadmin\/gyms\/([^/]+)\/claim-unassigned$/);
+  if (superadminClaimMatch && method === "POST") {
+    assertRole(session, "superadmin");
+    const gymId = superadminClaimMatch[1];
+    const gym = await env.DB.prepare(`SELECT id FROM gyms WHERE id = ?`).bind(gymId).first();
+    if (!gym) return json({ error: "Gym not found." }, 404);
+    // Count unassigned first
+    const unassigned = await env.DB.prepare(`SELECT COUNT(*) AS count FROM clients WHERE gym_id IS NULL`).first();
+    const count = Number(unassigned?.count || 0);
+    if (count === 0) return json({ ok: true, claimed: 0, message: "No unassigned clients found." });
+    // Assign all null-gym_id clients AND their user accounts to this gym
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE clients SET gym_id = ? WHERE gym_id IS NULL`).bind(gymId),
+      env.DB.prepare(`UPDATE users SET gym_id = ? WHERE gym_id IS NULL AND role = 'client'`).bind(gymId),
+    ]);
+    return json({ ok: true, claimed: count });
   }
 
   if (superadminGymMatch && method === "PATCH") {
