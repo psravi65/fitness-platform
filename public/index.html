@@ -737,6 +737,7 @@
       appData: null,
       superadminData: null,
       superadminGymDetail: null,
+      impersonatingGymId: null,
       loading: false,
       message: "",
       error: "",
@@ -849,6 +850,8 @@
         setRoute("/login");
         return false;
       }
+      // superadmin can access admin routes
+      if(role === "admin" && state.me.role === "superadmin") return true;
       if(role && state.me.role !== role){
         if(state.me.role === "superadmin") setRoute("/superadmin");
         else if(state.me.role === "admin") setRoute("/admin");
@@ -996,8 +999,40 @@
           method: "PATCH",
           body: JSON.stringify({ status: newStatus })
         });
-        setFlash(`Gym ${newStatus}.`);
+        setFlash("Gym " + newStatus + ".");
         await bootstrapForRoute();
+      }catch(err){
+        setFlash(err.message, true);
+      }
+    }
+
+    async function impersonateGymAdmin(gymId){
+      // Store the gym we're managing and switch to admin view
+      state.impersonatingGymId = gymId;
+      try{
+        const res = await api("/api/superadmin/impersonate/" + gymId, { method: "POST", body: "{}" });
+        if(res.ok){
+          // Re-fetch session — now acting as admin for this gym
+          const me = await api("/api/me", { method: "GET", headers: {} });
+          state.me = me.user;
+          setFlash("Now managing " + res.gymName + " as admin.");
+          setRoute("/admin");
+        }
+      }catch(err){
+        setFlash(err.message, true);
+      }
+    }
+
+    async function exitImpersonation(){
+      try{
+        const res = await api("/api/superadmin/impersonate/exit", { method: "POST", body: "{}" });
+        if(res.ok){
+          const me = await api("/api/me", { method: "GET", headers: {} });
+          state.me = me.user;
+          state.impersonatingGymId = null;
+          setFlash("Returned to superadmin view.");
+          setRoute("/superadmin");
+        }
       }catch(err){
         setFlash(err.message, true);
       }
@@ -2330,13 +2365,13 @@
                 <div class="divider-label" style="margin:24px 0 20px">First Time Setup</div>
                 <div class="card">
                   <h3>Create Platform Account</h3>
-                  <p class="subtle" style="margin-bottom:14px">No account exists yet. Create the app owner (superadmin) or a single gym admin.</p>
+                  <p class="subtle" style="margin-bottom:14px">Create the app owner (superadmin) or a single gym admin.</p>
                   <form class="grid" id="bootstrap-admin-form">
                     <label><span>Username</span><input name="username" required/></label>
                     <label><span>Password</span><input type="password" name="password" required/></label>
                     <label style="display:flex;align-items:center;gap:8px;margin-top:4px">
                       <input type="checkbox" name="superadmin" style="width:16px;height:16px"/>
-                      <span style="display:inline;font-size:13px;color:var(--text);text-transform:none;letter-spacing:0">I am the app owner (superadmin — manages all gyms)</span>
+                      <span style="display:inline;font-size:13px;color:var(--text);text-transform:none;letter-spacing:0">I am the app owner (superadmin)</span>
                     </label>
                     <button class="ghost-btn" type="submit" style="width:100%;justify-content:center">Create Account</button>
                   </form>
@@ -2385,8 +2420,12 @@
 
       const isSuperAdmin = state.me?.role === "superadmin";
       const isAdmin = state.me?.role === "admin" || isSuperAdmin;
+      const isImpersonating = isSuperAdmin && state.route.startsWith("/admin");
       const app = state.appData || {};
-      const nav = isSuperAdmin ? [
+      const nav = isImpersonating ? [
+        ["/admin", "Gym Dashboard"],
+        ...(state.adminClientDetail ? [[state.route, "Client Detail"]] : [])
+      ] : isSuperAdmin ? [
         ["/superadmin", "All Gyms"],
         ...(state.superadminGymDetail ? [[state.route, "Gym Detail"]] : [])
       ] : isAdmin ? [
@@ -2403,12 +2442,11 @@
       let content = "";
 
       /* ─── SUPERADMIN DASHBOARD ─── */
-      if(isSuperAdmin){
+      if(isSuperAdmin && !isImpersonating){
         const sd = state.superadminData;
         const gymDetail = state.superadminGymDetail;
 
         if(gymDetail){
-          // ── Gym detail view ──
           const gym = gymDetail.gym;
           const clients = gymDetail.clients || [];
           const admin = gymDetail.admin;
@@ -2418,51 +2456,53 @@
                 <div>
                   <div class="section-eyebrow">Gym Detail</div>
                   <div class="section-title">${escapeHtml(gym.name)}</div>
-                  <div class="section-sub">${escapeHtml(gym.city || "")}${gym.city && gym.owner_name ? " · " : ""}${escapeHtml(gym.owner_name)} · <span class="pill ${gym.status === 'active' ? 'active' : 'alert'}">${gym.status}</span></div>
+                  <div class="section-sub">${escapeHtml(gym.city || "")}${gym.city ? " · " : ""}${escapeHtml(gym.owner_name)} · Admin: <strong>${escapeHtml(admin?.username || "—")}</strong></div>
                 </div>
                 <div class="inline">
+                  <button class="action-btn" id="manage-gym-btn" data-gym-id="${gym.id}">⚙ Manage as Admin →</button>
                   <button class="ghost-btn ${gym.status === 'active' ? 'danger' : 'teal'}" id="toggle-gym-status" data-gym-id="${gym.id}" data-status="${gym.status}">
-                    ${gym.status === 'active' ? 'Suspend Gym' : '✓ Reactivate Gym'}
+                    ${gym.status === 'active' ? 'Suspend' : '✓ Reactivate'}
                   </button>
                 </div>
               </div>
               ${flash}
-              <div class="grid cols-3" style="margin-top:20px">
+              <div class="grid cols-3" style="margin-top:16px">
                 <div class="stat-card"><div class="stat-icon">👥</div><div class="stat-value">${clients.length}</div><div class="stat-name">Total Clients</div></div>
                 <div class="stat-card"><div class="stat-icon">📋</div><div class="stat-value">${clients.filter(c => c.plan_status === 'published').length}</div><div class="stat-name">Active Plans</div></div>
-                <div class="stat-card"><div class="stat-icon">👤</div><div class="stat-value" style="font-size:18px">${escapeHtml(admin?.username || "—")}</div><div class="stat-name">Gym Admin</div></div>
+                <div class="stat-card"><div class="stat-icon">💤</div><div class="stat-value">${clients.filter(c => !c.last_log_date).length}</div><div class="stat-name">Never Logged</div></div>
+              </div>
+              <div class="notice warning" style="margin-top:16px;font-size:12.5px">
+                💡 Click <strong>Manage as Admin</strong> above to enter this gym's admin panel and manage clients, plans, and intakes directly.
               </div>
               <div class="card" style="margin-top:16px">
                 <h3>👥 Clients (${clients.length})</h3>
                 ${clients.length ? `
                   <table class="table" style="margin-top:10px">
-                    <thead><tr><th>Client</th><th>Status</th><th>Plan</th><th>Last Log</th></tr></thead>
+                    <thead><tr><th>Client</th><th>Username</th><th>Plan</th><th>Last Log</th></tr></thead>
                     <tbody>
                       ${clients.map(c => `
                         <tr>
-                          <td><div class="name">${escapeHtml(c.full_name)}</div><div class="username">@${escapeHtml(c.username || "")}</div></td>
-                          <td><span class="pill active">${c.status}</span></td>
+                          <td><div class="name">${escapeHtml(c.full_name)}</div></td>
+                          <td><div class="username">@${escapeHtml(c.username || "")}</div></td>
                           <td><span class="pill ${c.plan_status === 'published' ? 'published' : c.plan_status === 'draft' ? 'draft' : 'none'}">${c.plan_status || "none"}</span></td>
                           <td style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-3)">${c.last_log_date || "—"}</td>
                         </tr>
                       `).join("")}
                     </tbody>
                   </table>
-                ` : '<div class="empty">No clients yet for this gym.</div>'}
+                ` : '<div class="empty">No clients yet.</div>'}
               </div>
             </div>
           `;
         } else {
-          // ── All gyms overview ──
           const gyms = sd?.gyms || [];
           const stats = sd?.stats || {};
           content = `
             <div class="panel">
               <div class="toolbar">
                 <div>
-                  <div class="section-eyebrow">Platform Overview</div>
+                  <div class="section-eyebrow">App Owner · Platform Overview</div>
                   <div class="section-title">All Gyms</div>
-                  <div class="section-sub">You are the app owner. Only you can see this view.</div>
                 </div>
               </div>
               ${flash}
@@ -2501,13 +2541,13 @@
                       <label><span>City</span><input name="city" placeholder="e.g. Chennai"/></label>
                       <label><span>Phone</span><input name="phone" placeholder="e.g. 9876543210"/></label>
                     </div>
-                    <label><span>Owner email</span><input name="email" type="email" placeholder="e.g. rahul@fitzong.com"/></label>
-                    <label><span>Admin username</span><input name="adminUsername" required placeholder="e.g. fitzong.admin"/></label>
+                    <label><span>Owner email</span><input name="email" type="email" placeholder="e.g. rahul@fitzoneym.com"/></label>
+                    <label><span>Admin username</span><input name="adminUsername" required placeholder="e.g. fitzone.admin"/></label>
                     <button class="action-btn" type="submit">Create Gym</button>
                   </form>
                   ${state.draftPassword ? `
                     <div class="temp-password-box">
-                      <div class="temp-password-label">⚡ Gym Admin Temporary Password — save this now</div>
+                      <div class="temp-password-label">⚡ Gym Admin Temp Password — save this now</div>
                       <div class="temp-password-value">${escapeHtml(state.draftPassword)}</div>
                     </div>
                   ` : ""}
@@ -3042,18 +3082,21 @@
       }
 
       /* ─── SHELL WRAPPER ─── */
-      const eyebrow = isSuperAdmin ? "App Owner · Superadmin" : "Admin Console";
-      const title = isSuperAdmin ? "GymLog Platform" : "Fitness Platform";
+      const eyebrow = isImpersonating
+        ? "Managing Gym · " + (state.superadminGymDetail?.gym?.name || "Gym")
+        : isSuperAdmin ? "App Owner · Superadmin" : "Admin Console";
+      const brandTitle = isSuperAdmin && !isImpersonating ? "GymLog Platform" : "Fitness Platform";
 
       root.innerHTML = isAdmin ? `
         <div class="app-shell">
           <div class="topbar">
             <div class="brand">
               <div class="brand-eyebrow">${eyebrow}</div>
-              <h1>${title}</h1>
-              <div class="brand-sub">Signed in as <strong>${state.me?.username || ""}</strong></div>
+              <h1>${brandTitle}</h1>
+              <div class="brand-sub">Signed in as <strong>${state.me?.username || ""}</strong>${isImpersonating ? ' · <span style="color:var(--gold)">⚙ Managing gym as admin</span>' : ''}</div>
             </div>
             <div class="top-actions">
+              ${isImpersonating ? `<button class="ghost-btn teal" id="exit-impersonation-btn">← Back to All Gyms</button>` : ""}
               <button class="ghost-btn" id="logout-btn">Sign Out</button>
             </div>
           </div>
@@ -3100,12 +3143,30 @@
       const logoutBtn = document.getElementById("logout-btn");
       if(logoutBtn) logoutBtn.onclick = logout;
 
-      if(isSuperAdmin && path === "/superadmin"){
+      // Superadmin exit impersonation
+      const exitBtn = document.getElementById("exit-impersonation-btn");
+      if(exitBtn) exitBtn.onclick = () => { setRoute("/superadmin"); };
+
+      // Superadmin all-gyms view
+      if(isSuperAdmin && !isImpersonating && path === "/superadmin"){
         const createGymForm = document.getElementById("create-gym-form");
         if(createGymForm) createGymForm.onsubmit = createGym;
         document.querySelectorAll(".open-gym").forEach(btn => btn.onclick = () => setRoute("/superadmin/gyms/" + btn.dataset.gymId));
       }
-      if(isSuperAdmin && state.superadminGymDetail){
+
+      // Superadmin gym detail view
+      if(isSuperAdmin && !isImpersonating && state.superadminGymDetail){
+        const manageBtn = document.getElementById("manage-gym-btn");
+        if(manageBtn) manageBtn.onclick = async () => {
+          const gymId = manageBtn.dataset.gymId;
+          // Load clients for this gym in admin view context
+          try {
+            state.clients = (await api("/api/admin/clients?gym_override=" + gymId, { method: "GET", headers: {} })).clients;
+          } catch(e) {
+            state.clients = [];
+          }
+          setRoute("/admin");
+        };
         const toggleBtn = document.getElementById("toggle-gym-status");
         if(toggleBtn) toggleBtn.onclick = () => toggleGymStatus(toggleBtn.dataset.gymId, toggleBtn.dataset.status);
       }
@@ -3113,6 +3174,14 @@
       if(isAdmin && !isSuperAdmin && path === "/admin"){
         document.getElementById("create-client-form").onsubmit = createClient;
         document.getElementById("export-all").onclick = () => exportSheets(null);
+        document.querySelectorAll(".open-client").forEach(btn => btn.onclick = () => setRoute("/admin/clients/" + btn.dataset.clientId));
+      }
+
+      if(isImpersonating && path === "/admin"){
+        const createClientForm = document.getElementById("create-client-form");
+        if(createClientForm) createClientForm.onsubmit = createClient;
+        const exportAllBtn = document.getElementById("export-all");
+        if(exportAllBtn) exportAllBtn.onclick = () => exportSheets(null);
         document.querySelectorAll(".open-client").forEach(btn => btn.onclick = () => setRoute("/admin/clients/" + btn.dataset.clientId));
       }
 
