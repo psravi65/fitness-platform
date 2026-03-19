@@ -2513,9 +2513,7 @@
       const isSuperAdmin = state.me?.role === "superadmin";
       const isViewingAsAdmin = isSuperAdmin && path.startsWith("/admin");
       const isAdmin = state.me?.role === "admin" || isSuperAdmin;
-      const activeGym = state.superadminData?.gyms?.find(g => g.id === state.activeAdminGymId)
-        || state.superadminGymDetail?.gym
-        || state.superadminData?.gyms?.[0];
+      const activeGym = state.superadminData?.gyms?.find(g => g.id === state.activeAdminGymId) || state.superadminGymDetail?.gym || state.superadminData?.gyms?.[0];
       const myGymName = activeGym?.name || "My Gym";
       const app = state.appData || {};
       const nav = (isSuperAdmin && !isViewingAsAdmin) ? [
@@ -2586,7 +2584,7 @@
                   </table>
                 ` : '<div class="empty">No clients yet for this gym.</div>'}
               </div>
-              ${state.draftPassword ? `<div class="temp-password-box" style="margin-top:12px"><div class="temp-password-label">⚡ Admin Temporary Password — save this now, won't show again</div><div class="temp-password-value">${escapeHtml(state.draftPassword)}</div></div>` : ""}
+              ${state.draftPassword ? `<div class="temp-password-box" style="margin-top:12px"><div class="temp-password-label">⚡ Admin Temp Password — save now, shown once</div><div class="temp-password-value">${escapeHtml(state.draftPassword)}</div></div>` : ""}
             </div>
           `;
         } else {
@@ -2661,7 +2659,8 @@
         /* ─── ADMIN DASHBOARD ─── */
         if(path === "/admin"){
           const review = reviewSummary(state.clients);
-          const flaggedClients = state.clients.filter(c => (c.reviewFlags || []).length > 0);
+          const clients = state.clients || [];
+          const flaggedClients = clients.filter(c => (c.reviewFlags || []).length > 0);
           content = `
             <div class="panel">
               ${coachingBanner}
@@ -2733,12 +2732,12 @@
                   ` : ""}
                 </div>
                 <div class="card">
-                  <h3>👥 All Clients (${state.clients.length})</h3>
-                  ${state.clients.length ? `
+                  <h3>👥 All Clients (${clients.length})</h3>
+                  ${clients.length ? `
                     <table class="table" style="margin-top:10px">
                       <thead><tr><th>Client</th><th>Status</th><th>Plan</th><th></th></tr></thead>
                       <tbody>
-                        ${state.clients.map(client => `
+                        ${clients.map(client => `
                           <tr>
                             <td>
                               <div class="name">${escapeHtml(client.full_name)}</div>
@@ -3214,14 +3213,7 @@
         : isSuperAdmin ? "App Owner · Superadmin"
         : "Admin Console";
       const title = isSuperAdmin ? "GymLog Platform" : "Fitness Platform";
-      const gymSwitcher = (isViewingAsAdmin && state.superadminData?.gyms?.length > 1) ? `
-        <div style="margin-bottom:10px;display:flex;align-items:center;gap:10px;font-size:13px">
-          <span style="color:var(--text-3)">Viewing gym:</span>
-          <select id="gym-switcher" style="background:var(--surface-2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:4px 8px;font-size:13px;cursor:pointer">
-            ${(state.superadminData?.gyms||[]).map(g=>`<option value="${g.id}" ${g.id===state.activeAdminGymId?"selected":""}>${g.name}</option>`).join("")}
-          </select>
-        </div>
-      ` : "";
+      const gymSwitcher = (isViewingAsAdmin && state.superadminData && state.superadminData.gyms && state.superadminData.gyms.length > 1) ? `<div style="margin-bottom:10px;display:flex;align-items:center;gap:10px;font-size:13px"><span style="color:var(--text-3)">Viewing gym:</span><select id="gym-switcher" style="background:var(--surface-2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:4px 8px;font-size:13px;cursor:pointer">${(state.superadminData.gyms||[]).map(g=>`<option value="${g.id}" ${g.id===state.activeAdminGymId?'selected':''}>${g.name}</option>`).join('')}</select></div>` : '';
       const coachingBanner = isViewingAsAdmin ? `
         <div style="margin-bottom:14px;padding:10px 16px;background:rgba(0,203,168,.08);border:1px solid rgba(0,203,168,.2);border-radius:10px;font-size:13px;color:var(--teal)">
           ⚙ Managing <strong>${myGymName}</strong> as coach — click <strong>← Platform</strong> in the sidebar to return to platform overview.
@@ -3294,40 +3286,35 @@
         const toggleBtn = document.getElementById("toggle-gym-status");
         if(toggleBtn) toggleBtn.onclick = () => toggleGymStatus(toggleBtn.dataset.gymId, toggleBtn.dataset.status);
 
-        // "Manage Clients →" — store gym context then switch to admin view
         const manageBtn = document.getElementById("manage-as-admin-btn");
         if(manageBtn) manageBtn.onclick = async () => {
           state.activeAdminGymId = manageBtn.dataset.gymId;
-          // Pre-load superadmin data so gym name resolves in admin header
           if(!state.superadminData){
             try{ state.superadminData = await api("/api/superadmin/gyms", { method: "GET", headers: {} }); }catch{}
           }
           setRoute("/admin");
         };
 
-        // "Reset Admin Pwd" — generates a new temp password for the gym's admin user
         const resetBtn = document.getElementById("reset-admin-pwd-btn");
         if(resetBtn) resetBtn.onclick = async () => {
-          if(!confirm("Generate a new temporary password for this gym's admin? Their current password will stop working immediately.")) return;
+          if(!confirm("Generate a new temporary password for this gym's admin? Their current password stops working immediately.")) return;
           resetBtn.disabled = true; resetBtn.textContent = "Resetting…";
           try{
             const res = await api("/api/superadmin/gyms/" + resetBtn.dataset.gymId + "/reset-admin-password", { method: "POST", body: "{}" });
             state.draftPassword = res.temporaryPassword;
-            setFlash("Password reset. New temporary password shown below — copy and send it to the admin now.");
+            setFlash("Password reset. New temporary password shown below — copy and send to the admin now.");
           }catch(err){ setFlash(err.message, true); }
           resetBtn.disabled = false; resetBtn.textContent = "🔑 Reset Admin Pwd";
         };
       }
 
       if(isViewingAsAdmin && path === "/admin"){
-        // Gym switcher dropdown
         const gymSwitcherEl = document.getElementById("gym-switcher");
         if(gymSwitcherEl) gymSwitcherEl.onchange = async (e) => {
           state.activeAdminGymId = e.target.value;
           state.adminClientDetail = null;
           await bootstrapForRoute();
         };
-        // Client row clicks
         document.querySelectorAll(".open-client").forEach(btn => btn.onclick = () => setRoute("/admin/clients/" + btn.dataset.clientId));
       }
 
