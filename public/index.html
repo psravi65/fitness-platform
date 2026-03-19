@@ -3,6 +3,11 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#FF5C28">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="GymLog">
   <title>Fitness Platform</title>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
@@ -945,6 +950,14 @@
       }
     }
 
+    async function markPlanSeen(){
+      try{
+        await api("/api/app/mark-plan-seen", { method: "POST", body: "{}" });
+        if(state.appData?.plan) state.appData.plan.plan_notified = 1;
+        render();
+      }catch(e){ render(); }
+    }
+
     function selectMealCard(el){
       const picker = el.closest(".meal-card-picker");
       if(!picker) return;
@@ -1126,7 +1139,7 @@
     async function generatePlan(clientId){
       const btn = document.getElementById("generate-plan");
       const orig = btn ? btn.textContent : "";
-      if(btn){ btn.disabled = true; btn.textContent = "Generating…"; }
+      if(btn){ btn.disabled = true; btn.textContent = "Generating… (~30s)"; }
       try{
         await api("/api/admin/clients/" + clientId + "/generate-plan", { method: "POST", body: "{}" });
         setFlash("Plan draft generated.");
@@ -2596,7 +2609,11 @@
                             <td style="font-size:13px">${escapeHtml(g.owner_name)}</td>
                             <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--teal)">${g.client_count || 0}</td>
                             <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--lime)">${g.active_plans || 0}</td>
-                            <td><span class="pill ${g.status === 'active' ? 'active' : 'alert'}">${g.status}</span></td>
+                            <td>
+                              <span class="pill ${g.status === 'active' ? 'active' : 'alert'}">${g.status}</span>
+                              ${(g.trial_days_left > 0) ? `<span class="pill draft" style="margin-left:4px;font-size:9px">${g.trial_days_left}d trial</span>` : ""}
+                              ${(g.plan_tier === 'trial' && !g.trial_days_left) ? `<span class="pill alert" style="margin-left:4px;font-size:9px">trial ended</span>` : ""}
+                            </td>
                             <td><button class="ghost-btn" onclick="setRoute('/superadmin/gyms/${escapeAttr(g.id)}')" style="padding:7px 12px;font-size:12px">View →</button></td>
                           </tr>
                         `).join("")}
@@ -2716,7 +2733,10 @@
                               <div class="username">@${escapeHtml(client.username)}</div>
                             </td>
                             <td><span class="pill active">${formatClientStatus(client.status)}</span></td>
-                            <td><span class="pill ${client.plan_status === 'published' ? 'published' : client.plan_status === 'draft' ? 'draft' : 'none'}">${client.plan_status || "none"}</span></td>
+                            <td>
+                            <span class="pill ${client.plan_status === 'published' ? 'published' : client.plan_status === 'draft' ? 'draft' : 'none'}">${client.plan_status || "none"}</span>
+                            ${isStale ? `<span class="pill alert" style="margin-left:4px;font-size:9px" title="${planAge} days on current plan">⚠ ${planAge}d</span>` : ""}
+                          </td>
                             <td><button class="ghost-btn open-client" data-client-id="${client.id}" style="padding:7px 12px;font-size:12px">Open →</button></td>
                           </tr>
                         `).join("")}
@@ -2754,7 +2774,8 @@
                     <h3>📋 Client Intake</h3>
                     <button class="ghost-btn" id="generate-plan">${detail.plan ? "⚡ Regenerate Plan from Intake" : "⚡ Generate Plan"}</button>
                   </div>
-                  <div id="admin-intake-form">${renderIntakeForm(detail.intake?.answers_json || {}, "Save Intake", "return false;", detail.client.id)}</div>
+                  <button class="ghost-btn" id="delete-client-btn" style="width:100%;justify-content:center;color:var(--red,#e24b4a);border-color:rgba(226,75,74,.3);margin-bottom:10px">🗑 Delete Client</button>
+              <div id="admin-intake-form">${renderIntakeForm(detail.intake?.answers_json || {}, "Save Intake", "return false;", detail.client.id)}</div>
                 </div>
                 <div class="card">
                   <div class="toolbar">
@@ -2964,11 +2985,37 @@
               </div>
             `;
 
+          // ─── STATE 2.5: Plan freshly published — celebrate ────────────────
+          } else if(app.plan?.status === "published" && app.plan?.plan_notified === 0){
+            content = `
+              <div class="grid">
+                ${flash}
+                <div class="client-panel" style="background:linear-gradient(135deg,rgba(255,92,40,.18),rgba(255,147,64,.06));border-color:rgba(255,92,40,.3);text-align:center;padding:32px 24px">
+                  <div style="font-size:48px;margin-bottom:12px">🎉</div>
+                  <div style="font-family:'Outfit',sans-serif;font-size:24px;font-weight:900;color:var(--text)">Your plan is live!</div>
+                  <div style="font-size:14px;color:var(--text-2);margin-top:8px;line-height:1.6">Your coach has reviewed your intake and built a personalised plan just for you. Take a moment to read through it before starting.</div>
+                  <button class="action-btn" style="margin-top:20px;width:100%;justify-content:center;font-size:15px" onclick="setRoute('/app/plan')">View My Plan →</button>
+                  <button class="ghost-btn" style="margin-top:10px;width:100%;justify-content:center" onclick="markPlanSeen()">I'll check it later</button>
+                </div>
+              </div>
+            `;
+
           // ─── STATE 3: Plan is live — active daily use ─────────────────────
           } else {
             content = `
               <div class="grid">
                 ${flash}
+                ${!loggedToday && streak === 0 && recentLogs.length > 0 ? `
+                  <div class="client-panel" style="background:rgba(255,92,40,.06);border-color:rgba(255,92,40,.3)">
+                    <div style="display:flex;align-items:center;gap:12px">
+                      <div style="font-size:28px">😮</div>
+                      <div style="flex:1">
+                        <div style="font-size:14px;font-weight:700;color:var(--accent)">Your streak reset</div>
+                        <div style="font-size:12px;color:var(--text-3);margin-top:2px">Tap a mission item below to start a new one today.</div>
+                      </div>
+                    </div>
+                  </div>
+                ` : ""}
                 <div class="client-panel client-hero">
                   <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
                     <div>
@@ -3230,6 +3277,15 @@
       if(isAdmin && !isSuperAdmin && path === "/admin"){
         document.getElementById("create-client-form").onsubmit = createClient;
         document.getElementById("export-all").onclick = () => exportSheets(null);
+        const inactBtn = document.getElementById("check-inactivity-btn");
+        if(inactBtn) inactBtn.onclick = async () => {
+          inactBtn.disabled = true; inactBtn.textContent = "Sending…";
+          try{
+            const res = await api("/api/admin/check-inactivity", { method: "POST", body: "{}" });
+            setFlash(`Reminders sent: ${res.emailsSent} email${res.emailsSent === 1 ? "" : "s"} to inactive clients.`);
+          }catch(err){ setFlash(err.message, true); }
+          inactBtn.disabled = false; inactBtn.textContent = "📧 Send Reminders";
+        };
         document.querySelectorAll(".open-client").forEach(btn => btn.onclick = () => setRoute("/admin/clients/" + btn.dataset.clientId));
       }
 
@@ -3247,6 +3303,15 @@
         document.getElementById("publish-plan").onclick = () => publishPlan(clientId, true);
         const unpublish = document.getElementById("unpublish-plan");
         if(unpublish) unpublish.onclick = () => publishPlan(clientId, false);
+        const deleteBtn = document.getElementById("delete-client-btn");
+        if(deleteBtn) deleteBtn.onclick = async () => {
+          if(!confirm("Delete this client? This cannot be undone.")) return;
+          try{
+            await api("/api/admin/clients/" + clientId + "/delete", { method: "POST", body: "{}" });
+            setFlash("Client deleted.");
+            setRoute("/admin");
+          }catch(err){ setFlash(err.message, true); }
+        };
         document.getElementById("export-client").onclick = () => exportSheets(clientId);
         document.getElementById("delete-client").onclick = () => deleteClient(clientId, state.adminClientDetail.client.full_name);
         const linkHouseholdBtn = document.getElementById("link-household");
