@@ -259,7 +259,26 @@
       const [saving, setSaving] = useState(false);
 
       const planData = getPlanData(appData);
-      const meals = planData?.meals || planData?.nutrition?.meals || planData?.diet || [];
+      
+      // NEW: Bulletproof Diet Data Parser
+      let meals = [];
+      if (planData) {
+        // Try to find the diet information wherever the AI put it
+        const raw = planData.meals || planData.mealPlan || planData.diet || planData.dietPlan || planData.nutrition?.meals || planData.nutrition?.mealPlan || planData.nutrition?.diet;
+        
+        if (Array.isArray(raw)) {
+          meals = raw;
+        } else if (typeof raw === 'object' && raw !== null) {
+          meals = Object.entries(raw).map(([k, v]) => ({ name: k, details: v }));
+        } else if (typeof raw === 'string') {
+          meals = [{ name: "Diet Guidelines", details: raw }];
+        } else if (planData.nutrition && typeof planData.nutrition === 'object') {
+          // If all else fails, iterate the nutrition object itself
+          meals = Object.entries(planData.nutrition)
+            .filter(([k]) => !['calories', 'protein', 'carbs', 'fats', 'macros'].includes(k.toLowerCase()))
+            .map(([k, v]) => ({ name: k, details: v }));
+        }
+      }
 
       const handleAddCustom = (e) => {
         e.preventDefault();
@@ -290,12 +309,20 @@
               <h3 className="font-bold text-white flex items-center gap-2"><i className="fa-solid fa-fire text-[#ffc940]"></i> Your AI Diet Plan</h3>
               <div className="space-y-3">
                 {meals.map((m, i) => {
-                  const mealName = m.meal || m.name || `Meal ${i+1}`;
-                  const mealDetails = m.details || m.description || m.food || JSON.stringify(m);
+                  let mealName = `Meal ${i+1}`;
+                  let mealDetails = m;
+                  
+                  if (typeof m === 'object' && m !== null) {
+                    mealName = m.meal || m.name || m.type || m.time || `Meal ${i+1}`;
+                    mealDetails = m.details || m.description || m.food || m.items || m;
+                  }
+                  
+                  const displayDetails = typeof mealDetails === 'object' ? JSON.stringify(mealDetails) : mealDetails;
+                  
                   return (
                     <div key={i} className="border-b border-white/5 pb-3 last:border-0 last:pb-0">
                       <div className="text-sm font-bold text-[#ffc940]">{mealName}</div>
-                      <div className="text-xs text-gray-300 mt-1">{mealDetails}</div>
+                      <div className="text-xs text-gray-300 mt-1">{displayDetails}</div>
                     </div>
                   )
                 })}
