@@ -1447,6 +1447,49 @@ function timingSafeEqual(a, b) {
   for (let i = 0; i < a.length; i++) result |= a[i] ^ b[i];
   return result === 0;
 }
+// --- EMAIL UTILITY (RESEND INTEGRATION) ---
+async function sendWelcomeEmail(env, email, fullName, username, tempPassword) {
+  // If no API key is set, we mock the email (great for local testing/setup!)
+  if (!env.RESEND_API_KEY) {
+    console.log(`\n📧 [MOCK EMAIL DISPATCHED]`);
+    console.log(`To: ${email}`);
+    console.log(`Subject: Welcome to GymLog! Your Access Details`);
+    console.log(`Body: Hi ${fullName}, your coach has invited you. Username: ${username}, Password: ${tempPassword}\n`);
+    return true; 
+  }
+
+  // If API key exists, send the real email via Resend
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from: 'GymLog Coaching <onboarding@gymlog.app>', // Update with your domain later
+        to: email,
+        subject: 'Welcome to GymLog! Your Access Details',
+        html: `
+          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2>Welcome to the team, ${fullName}! 💪</h2>
+            <p>Your coach has set up your private GymLog dashboard.</p>
+            <div style="background: #f4f4f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
+              <p style="margin: 0 0 10px 0;"><strong>Login URL:</strong> https://your-cloudflare-domain.workers.dev</p>
+              <p style="margin: 0 0 10px 0;"><strong>Username:</strong> ${username}</p>
+              <p style="margin: 0;"><strong>Temporary Password:</strong> ${tempPassword}</p>
+            </div>
+            <p>You will be prompted to create a new secure password upon your first login.</p>
+            <p>Let's get to work!</p>
+          </div>
+        `
+      })
+    });
+    if (!res.ok) console.error("Resend API Error:", await res.text());
+  } catch (err) {
+    console.error("Failed to send email:", err);
+  }
+}
 
 function toBase64(bytes) {
   let binary = "";
