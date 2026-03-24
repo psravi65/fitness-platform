@@ -185,12 +185,19 @@
       const { client, dailyLog } = appData || {};
       const planData = getPlanData(appData);
       
-      const calories = planData?.calorieTarget || planData?.nutrition?.calories || planData?.calories || 'N/A';
-      const protein = planData?.macros?.protein || planData?.nutrition?.protein || 'N/A';
+      const targetCalories = parseInt(String(planData?.calorieTarget || planData?.nutrition?.calories || planData?.calories || '0').replace(/\D/g, '')) || 2000;
+      const targetProtein = parseInt(String(planData?.macros?.protein || planData?.nutrition?.protein || '0').replace(/\D/g, '')) || 150;
+
+      // Dynamically calculate consumed amounts from the log
+      const loggedFoods = dailyLog?.meals_json?.loggedFoods || dailyLog?.diet_json?.loggedFoods || [];
+      const consumedCalories = loggedFoods.reduce((sum, f) => sum + (parseInt(f.calories) || 0), 0);
+      const consumedProtein = loggedFoods.reduce((sum, f) => sum + (parseInt(f.protein) || 0), 0);
 
       const isWorkoutLogged = dailyLog?.workout_json?.completed;
-      const loggedFoodsCount = (dailyLog?.meals_json?.loggedFoods?.length || 0) + (dailyLog?.diet_json?.loggedFoods?.length || 0);
-      const isDietLogged = loggedFoodsCount > 0;
+      const isDietLogged = loggedFoods.length > 0;
+
+      const calPercent = Math.min(Math.round((consumedCalories / targetCalories) * 100), 100);
+      const proPercent = Math.min(Math.round((consumedProtein / targetProtein) * 100), 100);
 
       const hasPlan = !!planData;
 
@@ -229,7 +236,7 @@
                 </div>
                 <div className="font-bold text-white text-sm">Diet</div>
                 <div className={`text-[10px] mt-1 uppercase tracking-widest font-bold ${isDietLogged ? 'text-[#ffc940]' : 'text-gray-500'}`}>
-                  {isDietLogged ? `${loggedFoodsCount} items logged` : 'Pending'}
+                  {isDietLogged ? `${loggedFoods.length} items logged` : 'Pending'}
                 </div>
               </button>
             </div>
@@ -247,19 +254,19 @@
                 <div>
                   <div className="flex justify-between text-xs mb-2">
                     <span className="text-gray-400 font-bold uppercase tracking-widest">Calories</span>
-                    <span className="font-bold text-white">{calories}</span>
+                    <span className="font-bold text-white">{consumedCalories} / {targetCalories} kcal</span>
                   </div>
                   <div className="h-2 bg-[#262626] rounded-full overflow-hidden">
-                    <div className="h-full w-[10%] kinetic-gradient rounded-full"></div>
+                    <div className="h-full kinetic-gradient rounded-full transition-all duration-500" style={{ width: `${calPercent}%` }}></div>
                   </div>
                 </div>
                 <div>
                   <div className="flex justify-between text-xs mb-2">
                     <span className="text-gray-400 font-bold uppercase tracking-widest">Protein</span>
-                    <span className="font-bold text-[#00cba8]">{protein}</span>
+                    <span className="font-bold text-[#00cba8]">{consumedProtein} / {targetProtein}g</span>
                   </div>
                   <div className="h-2 bg-[#262626] rounded-full overflow-hidden">
-                    <div className="h-full w-[10%] bg-[#00cba8] rounded-full"></div>
+                    <div className="h-full bg-[#00cba8] rounded-full transition-all duration-500" style={{ width: `${proPercent}%` }}></div>
                   </div>
                 </div>
               </div>
@@ -549,7 +556,6 @@
       const [saving, setSaving] = useState(false);
       const [hasSynced, setHasSynced] = useState(false);
 
-      // Safe state synchronization referencing meals_json correctly
       useEffect(() => {
         const loadedMeals = appData?.dailyLog?.meals_json?.loggedFoods || appData?.dailyLog?.diet_json?.loggedFoods;
         if (loadedMeals && !hasSynced) {
@@ -567,81 +573,61 @@
       
       const aiFoodOptions = useMemo(() => {
         if (!planData) return [];
-        const opts = new Set();
+        const opts = new Map(); // Using Map to store label -> macro data
 
-        const addOption = (value) => {
-          if (typeof value !== 'string') return;
-          const cleaned = value.replace(/\s+/g, ' ').trim();
-          
-          if (cleaned.length < 4 || cleaned.length > 150) return;
-          
-          const lower = cleaned.toLowerCase();
-          if (
-            lower.includes('weekly meal') || 
-            lower.includes('structure') ||
-            lower.includes('gemini') ||
-            lower.includes('improvement') ||
-            lower.includes('minutes') ||
-            lower.includes('rest day') ||
-            lower.includes('hours') ||
-            lower.includes('consistent daily') ||
-            ['male', 'female', 'yes', 'no', 'nil'].includes(lower)
-          ) return;
-
-          opts.add(cleaned);
+        const addOption = (label, data = {}) => {
+          if (typeof label !== 'string') return;
+          const cleaned = label.replace(/\s+/g, ' ').trim();
+          if (cleaned.length < 3 || cleaned.length > 140 || cleaned.toLowerCase().includes('weekly meal structure')) return;
+          opts.set(cleaned, {
+             label: cleaned,
+             calories: data.calories || 0,
+             protein: data.protein || 0,
+             carbs: data.carbs || 0,
+             fat: data.fat || data.fats || 0
+          });
         };
 
-        const dig = (node, context) => {
+        const extractStrings = (node) => {
           if (node == null) return;
-
           if (typeof node === 'string') {
             let str = node.trim();
             if (str.toLowerCase().startsWith('options:')) str = str.slice(8).trim();
-
             if ((str.startsWith('[') && str.endsWith(']')) || (str.startsWith('{') && str.endsWith('}'))) {
-              try { dig(JSON.parse(str), context); return; } catch {}
+              try { extractStrings(JSON.parse(str)); return; } catch {}
             }
-            
-            if (['breakfast', 'lunch', 'dinner', 'snack', 'meals', 'options'].includes(context)) {
-               addOption(str);
-            }
+            addOption(str);
             return;
           }
-
           if (Array.isArray(node)) {
-            node.forEach(child => dig(child, context));
+            node.forEach(extractStrings);
             return;
           }
-
           if (typeof node === 'object') {
-            if (node.label || node.food || node.option) {
-                addOption(node.label || node.food || node.option);
-            } else if (node.name && (node.calories || node.protein || node.carbs || node.fat || node.fats)) {
-                addOption(node.name);
-            }
-
+            const label = node.label || node.food || node.option || node.title || node.name;
+            if (label) addOption(label, node);
             Object.entries(node).forEach(([k, v]) => {
-              const kLower = k.toLowerCase();
-              if (['client_profile', 'intake', 'workout', 'workouts', 'workoutsplit', 'workout_plan', 'routine', 'metadata', 'system', 'goal'].includes(kLower)) return;
-              dig(v, kLower);
+              if (!k.toLowerCase().includes('weekly meal')) extractStrings(v);
             });
           }
         };
 
-        const source = planData.nutrition || planData.diet || planData.meals || planData;
-        dig(source, 'root');
-
-        return Array.from(opts);
+        extractStrings(planData.nutrition ? { ...planData, ...planData.nutrition } : planData);
+        return Array.from(opts.values());
       }, [planData]);
 
       const handleAddFood = (e) => {
         e.preventDefault();
-        const foodToLog = isCustom ? customFood : selectedAiFood;
-        if(!foodToLog.trim()) return;
-        
-        setLoggedFoods([...loggedFoods, { name: foodToLog, type: isCustom ? 'custom' : 'ai' }]);
-        setCustomFood("");
-        setSelectedAiFood("");
+        if (isCustom) {
+           if(!customFood.trim()) return;
+           setLoggedFoods([...loggedFoods, { name: customFood, type: 'custom', calories: 0, protein: 0 }]);
+           setCustomFood("");
+        } else {
+           const match = aiFoodOptions.find(o => o.label === selectedAiFood);
+           if (!match) return;
+           setLoggedFoods([...loggedFoods, { name: match.label, type: 'ai', calories: match.calories, protein: match.protein }]);
+           setSelectedAiFood("");
+        }
         setIsCustom(false);
       };
 
@@ -650,7 +636,6 @@
         try {
           const date = getLocalDate();
           const existingWorkout = appData?.dailyLog?.workout_json || {};
-          
           await api(`/api/app/daily-log/${date}`, {
             method: 'PUT',
             body: JSON.stringify({ meals: { loggedFoods }, workout: existingWorkout })
@@ -708,8 +693,8 @@
               >
                 <option value="">Select a meal</option>
                 {aiFoodOptions.map((opt) => (
-                  <option key={opt} value={opt}>
-                    {opt.length > 55 ? `${opt.slice(0, 55)}...` : opt}
+                  <option key={opt.label} value={opt.label}>
+                    {opt.label.length > 55 ? `${opt.label.slice(0, 55)}...` : opt.label}
                   </option>
                 ))}
                 <option value="custom">Custom food entry</option>
@@ -732,7 +717,10 @@
             <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest pl-2">Logged Today</h3>
             {loggedFoods.map((f, i) => (
               <div key={i} className="bg-[#1a1919] border-l-4 border-l-[#6bff8f] rounded-xl p-4 flex justify-between items-center">
-                <span className="text-white text-sm font-medium">{f.name}</span>
+                <div className="flex flex-col">
+                  <span className="text-white text-sm font-medium">{f.name}</span>
+                  {f.calories > 0 && <span className="text-[10px] text-gray-500 font-bold uppercase mt-0.5">{f.calories} kcal • {f.protein}g P</span>}
+                </div>
                 <button type="button" onClick={() => setLoggedFoods(loggedFoods.filter((_, idx) => idx !== i))} className="text-red-400 p-2 hover:bg-red-500/10 rounded-lg transition-colors"><i className="fa-solid fa-trash text-xs"></i></button>
               </div>
             ))}
@@ -752,7 +740,6 @@
       const [selectedDayIdx, setSelectedDayIdx] = useState(0);
       
       const planData = getPlanData(appData);
-      
       let daysRaw = planData?.workoutSplit || planData?.workout_plan || planData?.workouts || planData?.routine || [];
       let days = [];
       if (Array.isArray(daysRaw)) {
@@ -765,7 +752,6 @@
       }
       
       const currentDay = days[selectedDayIdx] || null;
-      
       const rawExercises = currentDay?.exercises || currentDay?.workout || currentDay?.movements;
       const exercisesRaw = Array.isArray(rawExercises) ? rawExercises : (rawExercises ? [rawExercises] : []);
 
@@ -774,9 +760,7 @@
         const name = isObj ? (ex.name || ex.exercise || "Unknown Exercise") : String(ex);
         const isCardio = /run|jog|treadmill|sprint|bike|cycle|row|cardio|walk|elliptical|stair|swim|step/i.test(name);
         return {
-           id: i, 
-           name: name, 
-           type: isCardio ? "cardio" : "strength", 
+           id: i, name, type: isCardio ? "cardio" : "strength", 
            targetSets: isObj ? (ex.sets || 3) : 3, 
            targetReps: isObj ? (ex.reps || (isCardio ? "N/A" : "10")) : (isCardio ? "N/A" : "10"),
            duration: isObj ? (ex.duration || "") : ""
@@ -792,19 +776,15 @@
         try {
           const date = getLocalDate();
           const existingMeals = appData?.dailyLog?.meals_json || {};
-          
           await api(`/api/app/daily-log/${date}`, {
-            method: 'PUT', 
-            body: JSON.stringify({ meals: existingMeals, workout: data })
+            method: 'PUT', body: JSON.stringify({ meals: existingMeals, workout: data })
           });
           setFlash({ msg: "Workout log saved!" });
         } catch (err) { setFlash({ err: err.message }); }
         setSaving(false);
       };
 
-      if (days.length === 0) {
-         return <div className="p-8 text-center text-gray-400 mt-10">No active workout plan found.</div>;
-      }
+      if (days.length === 0) return <div className="p-8 text-center text-gray-400 mt-10">No active workout plan found.</div>;
 
       const warmup = currentDay?.warmup;
       const cooldown = currentDay?.cooldown || currentDay?.stretches;
@@ -821,9 +801,7 @@
           <div className="flex gap-2 overflow-x-auto pb-2 mb-2 scrollbar-hide">
             {days.map((d, i) => (
               <button 
-                key={i} 
-                type="button"
-                onClick={() => setSelectedDayIdx(i)}
+                key={i} type="button" onClick={() => setSelectedDayIdx(i)}
                 className={`whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold transition-colors ${selectedDayIdx === i ? 'bg-[#6bff8f] text-[#003a12]' : 'bg-[#1a1919] text-gray-400 border border-white/5'}`}
               >
                 {d.day || `Day ${i+1}`}
@@ -841,45 +819,41 @@
           <div className="space-y-4">
             {todayWorkout.length === 0 ? (
               <p className="text-sm text-gray-500 italic">Rest day or no exercises planned.</p>
-            ) : todayWorkout.map((ex) => {
-              const isCardio = ex.type === 'cardio';
-              return (
-                <div key={ex.id} className="bg-[#1a1919] border border-white/5 rounded-3xl overflow-hidden">
-                  <div className="bg-[#262626]/50 p-4 border-b border-white/5 flex justify-between items-center">
-                    <h3 className="font-bold text-white text-sm pr-2">{ex.name}</h3>
-                    <span className="text-[10px] uppercase font-bold text-[#6bff8f] bg-[#6bff8f]/10 px-2 py-1 rounded">
-                      {isCardio ? 'Cardio' : 'Strength'}
-                    </span>
-                  </div>
-                  
-                  <div className="p-4">
-                    {isCardio ? (
-                      <div className="flex gap-4 items-end">
-                        <div className="flex-1">
-                          <label className="text-[10px] text-gray-400 font-bold uppercase block mb-1">Target: {ex.duration || "N/A"}</label>
-                          <input type="number" name={`ex_${ex.id}_duration`} placeholder="Mins Logged" className="bg-[#0b1628] text-white text-sm border-white/10" />
-                        </div>
-                        <div className="flex-1">
-                          <label className="text-[10px] text-gray-400 font-bold uppercase block mb-1">Notes</label>
-                          <input type="text" name={`ex_${ex.id}_notes`} placeholder="Intensity/Speed" className="bg-[#0b1628] text-white text-sm border-white/10" />
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        <div className="flex justify-between text-xs text-gray-400 mb-2 px-1"><span>Target: {ex.targetSets} sets × {ex.targetReps}</span></div>
-                        {Array.from({ length: ex.targetSets }).map((_, i) => (
-                          <div key={i} className="flex gap-3 items-center">
-                            <span className="text-gray-500 font-mono text-xs w-10">Set {i+1}</span>
-                            <input type="number" name={`ex_${ex.id}_set_${i}_weight`} placeholder="Weight" className="bg-[#0b1628] text-white text-sm border-white/10 pl-2 flex-1" />
-                            <input type="number" name={`ex_${ex.id}_set_${i}_reps`} placeholder="Reps" className="bg-[#0b1628] text-white text-sm border-white/10 pl-2 flex-1" />
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+            ) : todayWorkout.map((ex) => (
+              <div key={ex.id} className="bg-[#1a1919] border border-white/5 rounded-3xl overflow-hidden">
+                <div className="bg-[#262626]/50 p-4 border-b border-white/5 flex justify-between items-center">
+                  <h3 className="font-bold text-white text-sm pr-2">{ex.name}</h3>
+                  <span className="text-[10px] uppercase font-bold text-[#6bff8f] bg-[#6bff8f]/10 px-2 py-1 rounded">
+                    {ex.type === 'cardio' ? 'Cardio' : 'Strength'}
+                  </span>
                 </div>
-              );
-            })}
+                <div className="p-4">
+                  {ex.type === 'cardio' ? (
+                    <div className="flex gap-4 items-end">
+                      <div className="flex-1">
+                        <label className="text-[10px] text-gray-400 font-bold uppercase block mb-1">Target: {ex.duration || "N/A"}</label>
+                        <input type="number" name={`ex_${ex.id}_duration`} placeholder="Mins Logged" className="bg-[#0b1628] text-white text-sm border-white/10" />
+                      </div>
+                      <div className="flex-1">
+                        <label className="text-[10px] text-gray-400 font-bold uppercase block mb-1">Notes</label>
+                        <input type="text" name={`ex_${ex.id}_notes`} placeholder="Intensity/Speed" className="bg-[#0b1628] text-white text-sm border-white/10" />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="flex justify-between text-xs text-gray-400 mb-2 px-1"><span>Target: {ex.targetSets} sets × {ex.targetReps}</span></div>
+                      {Array.from({ length: ex.targetSets }).map((_, i) => (
+                        <div key={i} className="flex gap-3 items-center">
+                          <span className="text-gray-500 font-mono text-xs w-10">Set {i+1}</span>
+                          <input type="number" name={`ex_${ex.id}_set_${i}_weight`} placeholder="Weight" className="bg-[#0b1628] text-white text-sm border-white/10 pl-2 flex-1" />
+                          <input type="number" name={`ex_${ex.id}_set_${i}_reps`} placeholder="Reps" className="bg-[#0b1628] text-white text-sm border-white/10 pl-2 flex-1" />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
 
           {cooldown && (
@@ -902,35 +876,21 @@
 
     const ClientCheckinView = ({ setFlash }) => {
       const [saving, setSaving] = useState(false);
-
       const handleCheckin = async (e) => {
         e.preventDefault();
         setSaving(true);
         const data = Object.fromEntries(new FormData(e.target).entries());
         try {
-          // FIXED: Matches backend POST /checkins route
           await api('/api/app/checkins', {
-            method: 'POST', 
-            body: JSON.stringify({ 
-              checkinDate: getLocalDate(), 
-              weight: data.weight,
-              bodyFat: data.body_fat,
-              waist: data.waist,
-              hips: data.hips,
-              notes: data.notes
-            })
+            method: 'POST', body: JSON.stringify({ checkinDate: getLocalDate(), weight: data.weight, bodyFat: data.body_fat, waist: data.waist, hips: data.hips, notes: data.notes })
           });
           setFlash({ msg: "Weekly Check-in saved successfully!" });
         } catch (err) { setFlash({ err: err.message }); }
         setSaving(false);
       };
-
       return (
         <form onSubmit={handleCheckin} className="p-5 space-y-6">
-          <div>
-            <h2 className="text-2xl font-black text-white">Weekly Check-in</h2>
-            <p className="text-sm text-gray-400 mt-1">Log your physical progress for your coach.</p>
-          </div>
+          <div><h2 className="text-2xl font-black text-white">Weekly Check-in</h2><p className="text-sm text-gray-400 mt-1">Log your physical progress for your coach.</p></div>
           <div className="bg-[#1a1919] border border-white/5 rounded-3xl p-6 space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <label><span className="text-xs text-gray-400 font-bold uppercase block mb-2">Weight (kg)</span><input type="number" step="0.1" name="weight" required className="bg-[#262626] border-white/10 text-white w-full" /></label>
@@ -940,10 +900,7 @@
               <label><span className="text-xs text-gray-400 font-bold uppercase block mb-2">Waist (cm)</span><input type="number" step="0.1" name="waist" className="bg-[#262626] border-white/10 text-white w-full" /></label>
               <label><span className="text-xs text-gray-400 font-bold uppercase block mb-2">Hips (cm)</span><input type="number" step="0.1" name="hips" className="bg-[#262626] border-white/10 text-white w-full" /></label>
             </div>
-            <label className="block">
-              <span className="text-xs text-gray-400 font-bold uppercase block mb-2">Notes & Updates</span>
-              <textarea name="notes" placeholder="How did this week feel?" className="bg-[#262626] border-white/10 text-white w-full min-h-[100px]"></textarea>
-            </label>
+            <label className="block"><span className="text-xs text-gray-400 font-bold uppercase block mb-2">Notes & Updates</span><textarea name="notes" placeholder="How did this week feel?" className="bg-[#262626] border-white/10 text-white w-full min-h-[100px]"></textarea></label>
           </div>
           <button type="submit" disabled={saving} className="action-btn w-full mt-4">{saving ? 'Saving...' : 'Submit Check-in'}</button>
         </form>
@@ -955,17 +912,16 @@
       const [appData, setAppData] = useState(null);
       const [loadingApp, setLoadingApp] = useState(true);
 
-      useEffect(() => { 
+      const fetchBootstrap = () => {
         api('/api/app/bootstrap')
           .then(res => { setAppData(res); setLoadingApp(false); })
           .catch(() => { setLoadingApp(false); }); 
-      }, []);
+      };
 
-      if (loadingApp) {
-        return <div className="min-h-screen bg-[#0e0e0e] flex items-center justify-center"><i className="fa-solid fa-spinner fa-spin text-4xl text-[#6bff8f]"></i></div>;
-      }
+      useEffect(() => { fetchBootstrap(); }, []);
 
-      // Uses our robust parser to determine if plan is active
+      if (loadingApp) return <div className="min-h-screen bg-[#0e0e0e] flex items-center justify-center"><i className="fa-solid fa-spinner fa-spin text-4xl text-[#6bff8f]"></i></div>;
+
       const hasPlan = !!getPlanData(appData);
 
       return (
@@ -1009,7 +965,6 @@
     const AdminRoster = ({ clients, onOpenClient, onAddClient }) => {
       const [showModal, setShowModal] = useState(false);
       const [saving, setSaving] = useState(false);
-
       const handleAdd = async (e) => {
         e.preventDefault();
         setSaving(true);
@@ -1019,18 +974,12 @@
         } catch (err) { alert(err.message); }
         setSaving(false);
       };
-
       return (
         <div className="card relative">
-          <div className="flex justify-between items-center mb-6">
-            <div><h2 className="text-xl font-bold text-white">Client Roster</h2></div>
-            <button onClick={() => setShowModal(true)} className="action-btn text-sm py-2 px-4">+ Add Client</button>
-          </div>
+          <div className="flex justify-between items-center mb-6"><div><h2 className="text-xl font-bold text-white">Client Roster</h2></div><button onClick={() => setShowModal(true)} className="action-btn text-sm py-2 px-4">+ Add Client</button></div>
           <div className="overflow-hidden rounded-xl border border-[#1a2e48]">
             <table className="w-full text-left text-sm">
-              <thead className="bg-[#142642] text-[#7a9abf] text-[10px] uppercase tracking-widest font-semibold">
-                <tr><th className="p-4">Client</th><th className="p-4">Status</th><th className="p-4"></th></tr>
-              </thead>
+              <thead className="bg-[#142642] text-[#7a9abf] text-[10px] uppercase tracking-widest font-semibold"><tr><th className="p-4">Client</th><th className="p-4">Status</th><th className="p-4"></th></tr></thead>
               <tbody className="divide-y divide-[#1a2e48]">
                 {clients.length === 0 ? <tr><td colSpan="3" className="p-8 text-center text-gray-400">No clients yet.</td></tr> : clients.map(c => (
                   <tr key={c.id} className="hover:bg-[#142642] transition-colors">
@@ -1063,97 +1012,24 @@
       const [details, setDetails] = useState(null);
       const [generatingPlan, setGeneratingPlan] = useState(false);
       const [activeTab, setActiveTab] = useState('plan'); 
-
-      const fetchDetails = async () => {
-        try { const res = await api(`/api/admin/clients/${client.id}`); setDetails(res); } catch (err) { setFlash({ err: "Failed to load details." }); }
-      };
-
+      const fetchDetails = async () => { try { const res = await api(`/api/admin/clients/${client.id}`); setDetails(res); } catch (err) { setFlash({ err: "Failed to load details." }); } };
       useEffect(() => { fetchDetails(); }, [client.id]);
-
-      const handleGeneratePlan = async () => {
-        setGeneratingPlan(true); setFlash({ msg: "Initializing AI Agents..." });
-        try {
-          await api('/api/admin/plans/generate', { method: 'POST', body: JSON.stringify({ client_id: client.id }) });
-          setFlash({ msg: "AI Plan generated!" }); fetchDetails();
-        } catch (err) { setFlash({ err: err.message }); }
-        setGeneratingPlan(false);
-      };
-
-      const handlePublishPlan = async (planId) => {
-        try { await api(`/api/admin/plans/${planId}/publish`, { method: 'POST' }); setFlash({ msg: "Plan published to client!" }); fetchDetails(); } 
-        catch (err) { setFlash({ err: err.message }); }
-      };
-
+      const handleGeneratePlan = async () => { setGeneratingPlan(true); setFlash({ msg: "Initializing AI Agents..." }); try { await api('/api/admin/plans/generate', { method: 'POST', body: JSON.stringify({ client_id: client.id }) }); setFlash({ msg: "AI Plan generated!" }); fetchDetails(); } catch (err) { setFlash({ err: err.message }); } setGeneratingPlan(false); };
+      const handlePublishPlan = async (planId) => { try { await api(`/api/admin/plans/${planId}/publish`, { method: 'POST' }); setFlash({ msg: "Plan published to client!" }); fetchDetails(); } catch (err) { setFlash({ err: err.message }); } };
       if (!details) return <div className="text-center p-10"><i className="fa-solid fa-spinner fa-spin text-3xl text-[#6bff8f]"></i></div>;
-
       const noLogs = (!details.daily_logs || details.daily_logs.length === 0) && (!details.checkins || details.checkins.length === 0);
-
       return (
         <div className="space-y-6">
           <button onClick={onBack} className="text-xs text-[#7a9abf] hover:text-white flex items-center gap-2 mb-4"><i className="fa-solid fa-arrow-left"></i> Back</button>
-          
-          <div className="card flex justify-between items-center">
-            <div><h2 className="text-2xl font-black text-white">{client.full_name}</h2><p className="text-sm text-[#7a9abf] font-mono">@{client.username}</p></div>
-            <div className="text-right"><div className="text-[10px] text-gray-400 uppercase tracking-widest">Status</div><div className="text-[#00cba8] font-bold text-sm">{client.status}</div></div>
-          </div>
-
-          <div className="flex gap-6 border-b border-[#1a2e48]">
-            <button onClick={() => setActiveTab('plan')} className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'plan' ? 'border-[#6bff8f] text-[#6bff8f]' : 'border-transparent text-gray-500 hover:text-white'}`}>Overview & Plan</button>
-            <button onClick={() => setActiveTab('logs')} className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'logs' ? 'border-[#6bff8f] text-[#6bff8f]' : 'border-transparent text-gray-500 hover:text-white'}`}>Daily Logs & Check-ins</button>
-          </div>
-
+          <div className="card flex justify-between items-center"><div><h2 className="text-2xl font-black text-white">{client.full_name}</h2><p className="text-sm text-[#7a9abf] font-mono">@{client.username}</p></div><div className="text-right"><div className="text-[10px] text-gray-400 uppercase tracking-widest">Status</div><div className="text-[#00cba8] font-bold text-sm">{client.status}</div></div></div>
+          <div className="flex gap-6 border-b border-[#1a2e48]"><button onClick={() => setActiveTab('plan')} className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'plan' ? 'border-[#6bff8f] text-[#6bff8f]' : 'border-transparent text-gray-500 hover:text-white'}`}>Overview & Plan</button><button onClick={() => setActiveTab('logs')} className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'logs' ? 'border-[#6bff8f] text-[#6bff8f]' : 'border-transparent text-gray-500 hover:text-white'}`}>Daily Logs & Check-ins</button></div>
           {activeTab === 'plan' && (
             <div className="grid md:grid-cols-2 gap-6">
-              <div className="card">
-                <h3 className="text-lg font-bold text-white mb-4"><i className="fa-solid fa-clipboard-list text-[#6bff8f] mr-2"></i> Intake Form</h3>
-                {!details.intake ? <p className="text-sm text-gray-400">Not submitted yet.</p> : (
-                  <pre className="bg-[#0b1628] p-3 rounded-lg text-xs font-mono text-gray-300 border border-[#1a2e48] overflow-auto max-h-[300px]">
-                    {JSON.stringify(details.intake.answers_json, null, 2)}
-                  </pre>
-                )}
-              </div>
-              <div className="card">
-                <h3 className="text-lg font-bold text-white mb-4"><i className="fa-solid fa-brain text-[#ffc940] mr-2"></i> Coaching Plan</h3>
-                {!details.plan ? (
-                  <div className="text-center py-6">
-                    <p className="text-sm text-gray-400 mb-4">No plan exists.</p>
-                    <button onClick={handleGeneratePlan} disabled={!details.intake || generatingPlan} className="action-btn w-full">{generatingPlan ? 'Generating...' : 'Generate AI Plan'}</button>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center bg-[#0b1628] p-3 rounded-lg border border-[#1a2e48]">
-                      <span className="text-xs font-bold text-gray-400 uppercase">Status</span>
-                      <span className={`text-xs font-bold px-2 py-1 rounded ${details.plan.status === 'published' ? 'bg-[#00cba8]/20 text-[#00cba8]' : 'bg-[#ffc940]/20 text-[#ffc940]'}`}>{details.plan.status}</span>
-                    </div>
-                    <p className="text-xs text-gray-400 mb-2">Plan Details (Raw JSON):</p>
-                    <div className="bg-[#0b1628] border border-[#1a2e48] p-3 rounded-lg text-xs font-mono text-gray-300 max-h-[250px] overflow-y-auto whitespace-pre-wrap">
-                      {JSON.stringify(details.plan.generated_json, null, 2)}
-                    </div>
-                    {details.plan.status === 'draft' && (
-                      <button onClick={() => handlePublishPlan(details.plan.id)} className="action-btn w-full mt-2"><i className="fa-solid fa-paper-plane mr-2"></i> Publish Plan</button>
-                    )}
-                  </div>
-                )}
-              </div>
+              <div className="card"><h3 className="text-lg font-bold text-white mb-4"><i className="fa-solid fa-clipboard-list text-[#6bff8f] mr-2"></i> Intake Form</h3>{!details.intake ? <p className="text-sm text-gray-400">Not submitted yet.</p> : (<pre className="bg-[#0b1628] p-3 rounded-lg text-xs font-mono text-gray-300 border border-[#1a2e48] overflow-auto max-h-[300px]">{JSON.stringify(details.intake.answers_json, null, 2)}</pre>)}</div>
+              <div className="card"><h3 className="text-lg font-bold text-white mb-4"><i className="fa-solid fa-brain text-[#ffc940] mr-2"></i> Coaching Plan</h3>{!details.plan ? (<div className="text-center py-6"><p className="text-sm text-gray-400 mb-4">No plan exists.</p><button onClick={handleGeneratePlan} disabled={!details.intake || generatingPlan} className="action-btn w-full">{generatingPlan ? 'Generating...' : 'Generate AI Plan'}</button></div>) : (<div className="space-y-4"><div className="flex justify-between items-center bg-[#0b1628] p-3 rounded-lg border border-[#1a2e48]"><span className="text-xs font-bold text-gray-400 uppercase">Status</span><span className={`text-xs font-bold px-2 py-1 rounded ${details.plan.status === 'published' ? 'bg-[#00cba8]/20 text-[#00cba8]' : 'bg-[#ffc940]/20 text-[#ffc940]'}`}>{details.plan.status}</span></div><p className="text-xs text-gray-400 mb-2">Plan Details (Raw JSON):</p><div className="bg-[#0b1628] border border-[#1a2e48] p-3 rounded-lg text-xs font-mono text-gray-300 max-h-[250px] overflow-y-auto whitespace-pre-wrap">{JSON.stringify(details.plan.generated_json, null, 2)}</div>{details.plan.status === 'draft' && (<button onClick={() => handlePublishPlan(details.plan.id)} className="action-btn w-full mt-2"><i className="fa-solid fa-paper-plane mr-2"></i> Publish Plan</button>)}</div>)}</div>
             </div>
           )}
-
-          {activeTab === 'logs' && (
-            <div className="card">
-              <h3 className="text-lg font-bold text-white mb-4"><i className="fa-solid fa-chart-line text-[#00cba8] mr-2"></i> Client Progress Feed</h3>
-              <p className="text-sm text-gray-400 mb-6">View raw diet, workout, and check-in entries submitted by the client.</p>
-              
-              <div className="bg-[#0b1628] border border-[#1a2e48] p-4 rounded-xl max-h-[500px] overflow-auto">
-                {noLogs ? (
-                  <p className="text-xs text-gray-500 text-center py-4">No activity logged yet.</p>
-                ) : (
-                  <pre className="text-xs font-mono text-gray-300 whitespace-pre-wrap">
-                    {JSON.stringify({ dailyLogs: details.daily_logs, checkins: details.checkins }, null, 2)}
-                  </pre>
-                )}
-              </div>
-            </div>
-          )}
+          {activeTab === 'logs' && (<div className="card"><h3 className="text-lg font-bold text-white mb-4"><i className="fa-solid fa-chart-line text-[#00cba8] mr-2"></i> Client Progress Feed</h3><p className="text-sm text-gray-400 mb-6">View raw diet, workout, and check-in entries submitted by the client.</p><div className="bg-[#0b1628] border border-[#1a2e48] p-4 rounded-xl max-h-[500px] overflow-auto">{noLogs ? (<p className="text-xs text-gray-500 text-center py-4">No activity logged yet.</p>) : (<pre className="text-xs font-mono text-gray-300 whitespace-pre-wrap">{JSON.stringify({ dailyLogs: details.daily_logs, checkins: details.checkins }, null, 2)}</pre>)}</div></div>)}
         </div>
       );
     };
@@ -1161,35 +1037,15 @@
     const AdminShell = ({ me, setMe, setFlash }) => {
       const [clients, setClients] = useState([]);
       const [activeClient, setActiveClient] = useState(null);
-
-      const fetchClients = async () => {
-        try { const res = await api('/api/admin/clients'); setClients(res.clients || []); } catch (err) { setFlash({ err: "Failed to load clients." }); }
-      };
-
+      const fetchClients = async () => { try { const res = await api('/api/admin/clients'); setClients(res.clients || []); } catch (err) { setFlash({ err: "Failed to load clients." }); } };
       useEffect(() => { fetchClients(); }, []);
-
-      const handleAddClient = async (data) => {
-        await api('/api/admin/clients', { method: 'POST', body: JSON.stringify(data) });
-        setFlash({ msg: "Client added! Email sent." }); fetchClients();
-      };
-
+      const handleAddClient = async (data) => { await api('/api/admin/clients', { method: 'POST', body: JSON.stringify(data) }); setFlash({ msg: "Client added! Email sent." }); fetchClients(); };
       return (
         <div className="max-w-7xl mx-auto p-6 lg:p-10">
-          <div className="flex justify-between items-center mb-10">
-            <h1 className="text-3xl font-black text-white">Coach Dashboard</h1>
-            <button onClick={() => { api('/api/auth/logout', { method: 'POST' }).then(() => setMe(null)) }} className="ghost-btn text-sm">Sign Out</button>
-          </div>
+          <div className="flex justify-between items-center mb-10"><h1>Coach Dashboard</h1><button onClick={() => { api('/api/auth/logout', { method: 'POST' }).then(() => setMe(null)) }} className="ghost-btn text-sm">Sign Out</button></div>
           <div className="grid lg:grid-cols-[240px_1fr] gap-8">
-            <aside className="bg-gradient-to-b from-[#0b1628] to-[#0b1628]/90 border border-[#1a2e48] rounded-2xl p-4 h-fit">
-              <nav className="flex flex-col gap-1">
-                <button onClick={() => setActiveClient(null)} className={`flex items-center gap-3 w-full p-3 rounded-xl text-sm font-semibold text-left ${!activeClient ? 'text-[#6bff8f] bg-[#6bff8f]/10 border border-[#6bff8f]/30' : 'text-[#7a9abf] hover:bg-[#142642] hover:text-white'}`}>
-                  <i className="fa-solid fa-user"></i> Clients
-                </button>
-              </nav>
-            </aside>
-            <main>
-              {!activeClient ? <AdminRoster clients={clients} onOpenClient={setActiveClient} onAddClient={handleAddClient} /> : <AdminClientDetail client={activeClient} onBack={() => setActiveClient(null)} setFlash={setFlash} />}
-            </main>
+            <aside className="bg-gradient-to-b from-[#0b1628] to-[#0b1628]/90 border border-[#1a2e48] rounded-2xl p-4 h-fit"><nav className="flex flex-col gap-1"><button onClick={() => setActiveClient(null)} className={`flex items-center gap-3 w-full p-3 rounded-xl text-sm font-semibold text-left ${!activeClient ? 'text-[#6bff8f] bg-[#6bff8f]/10 border border-[#6bff8f]/30' : 'text-[#7a9abf] hover:bg-[#142642] hover:text-white'}`}><i className="fa-solid fa-user"></i> Clients</button></nav></aside>
+            <main>{!activeClient ? <AdminRoster clients={clients} onOpenClient={setActiveClient} onAddClient={handleAddClient} /> : <AdminClientDetail client={activeClient} onBack={() => setActiveClient(null)} setFlash={setFlash} />}</main>
           </div>
         </div>
       );
@@ -1199,59 +1055,18 @@
     function App() {
       const [me, setMe] = useState(undefined);
       const [flash, setFlash] = useState({ err: '', msg: '' });
-
-      useEffect(() => {
-        if (flash.err || flash.msg) {
-          const timer = setTimeout(() => setFlash({ err: '', msg: '' }), 5000);
-          return () => clearTimeout(timer);
-        }
-      }, [flash]);
-
-      useEffect(() => {
-        api('/api/me').then(res => setMe(res.user)).catch(() => setMe(null));
-      }, []);
-
-      const handlePasswordReset = async (e) => {
-        e.preventDefault();
-        try {
-          await api('/api/auth/password', { method: 'POST', body: JSON.stringify({ newPassword: e.target.newPassword.value }) });
-          setMe({ ...me, mustChangePassword: false });
-          setFlash({ msg: "Your password has been securely updated." });
-        } catch (err) {
-          setFlash({ err: err.message || "Failed to update password." });
-        }
-      };
-
+      useEffect(() => { if (flash.err || flash.msg) { const timer = setTimeout(() => setFlash({ err: '', msg: '' }), 5000); return () => clearTimeout(timer); } }, [flash]);
+      useEffect(() => { api('/api/me').then(res => setMe(res.user)).catch(() => setMe(null)); }, []);
+      const handlePasswordReset = async (e) => { e.preventDefault(); try { await api('/api/auth/password', { method: 'POST', body: JSON.stringify({ newPassword: e.target.newPassword.value }) }); setMe({ ...me, mustChangePassword: false }); setFlash({ msg: "Your password has been securely updated." }); } catch (err) { setFlash({ err: err.message || "Failed to update password." }); } };
       if (me === undefined) return <div className="min-h-screen bg-[#060d18] flex items-center justify-center"><i className="fa-solid fa-spinner fa-spin text-4xl text-[#6bff8f]"></i></div>;
-
       return (
         <React.Fragment>
           <GlobalStyles />
-          <div className="fixed top-4 right-4 z-[9999] w-full max-w-sm px-4">
-            <FlashMessage error={flash.err} message={flash.msg} />
-          </div>
-
-          {!me ? (
-            <LoginView setMe={setMe} setFlash={setFlash} />
-          ) : me.mustChangePassword ? (
-            <div className="min-h-screen flex items-center justify-center p-6 text-white text-center">
-              <form onSubmit={handlePasswordReset} className="card max-w-md w-full space-y-4">
-                <i className="fa-solid fa-lock text-[#ffc940] text-5xl mx-auto mb-4"></i>
-                <h2 className="text-2xl font-bold mb-2">Change Password</h2>
-                <p className="text-gray-400 text-sm mb-6">Please create a new, secure password to access your dashboard.</p>
-                <input type="password" name="newPassword" required placeholder="Enter new password" minLength="6" className="bg-[#0b1628] text-white border-white/10" />
-                <button type="submit" className="action-btn w-full mt-4">Save & Continue</button>
-              </form>
-            </div>
-          ) : me.role === 'client' ? (
-            <ClientShell me={me} setMe={setMe} setFlash={setFlash} />
-          ) : (
-            <AdminShell me={me} setMe={setMe} setFlash={setFlash} />
-          )}
+          <div className="fixed top-4 right-4 z-[9999] w-full max-w-sm px-4"><FlashMessage error={flash.err} message={flash.msg} /></div>
+          {!me ? (<LoginView setMe={setMe} setFlash={setFlash} />) : me.mustChangePassword ? (<div className="min-h-screen flex items-center justify-center p-6 text-white text-center"><form onSubmit={handlePasswordReset} className="card max-w-md w-full space-y-4"><i className="fa-solid fa-lock text-[#ffc940] text-5xl mx-auto mb-4"></i><h2 className="text-2xl font-bold mb-2">Change Password</h2><p className="text-gray-400 text-sm mb-6">Please create a new, secure password to access your dashboard.</p><input type="password" name="newPassword" required placeholder="Enter new password" minLength="6" className="bg-[#0b1628] text-white border-white/10" /><button type="submit" className="action-btn w-full mt-4">Save & Continue</button></form></div>) : me.role === 'client' ? (<ClientShell me={me} setMe={setMe} setFlash={setFlash} />) : (<AdminShell me={me} setMe={setMe} setFlash={setFlash} />)}
         </React.Fragment>
       );
     }
-
     const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(<App />);
   </script>
