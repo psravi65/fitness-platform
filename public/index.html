@@ -34,6 +34,16 @@
       return json;
     }
 
+    // --- Helper: Safely parse AI JSON from the Database ---
+    const getPlanData = (appData) => {
+      if (!appData?.plan?.generated_json) return null;
+      let data = appData.plan.generated_json;
+      if (typeof data === 'string') {
+        try { data = JSON.parse(data); } catch(e) { return null; }
+      }
+      return data;
+    };
+
     const GlobalStyles = () => (
       <style>{`
         :root {
@@ -71,6 +81,8 @@
         }
         input:focus, select:focus, textarea:focus { border-color: var(--accent); }
         .card { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
       `}</style>
     );
 
@@ -100,24 +112,6 @@
         } catch (err) { setFlash({ err: err.message }); }
       };
 
-      const handleBootstrap = async (e) => {
-        e.preventDefault();
-        try {
-          await api('/api/bootstrap-admin', {
-            method: 'POST',
-            body: JSON.stringify({
-              username: e.target.username.value,
-              password: e.target.password.value,
-              superadmin: e.target.superadmin.checked
-            })
-          });
-          setFlash({ msg: "Account created. You can log in now." });
-          setIsBootstrap(false);
-        } catch (err) {
-          setFlash({ err: err.message });
-        }
-      };
-
       return (
         <div className="min-h-screen flex flex-col items-center justify-center p-6">
           <div className="w-full max-w-md">
@@ -135,21 +129,6 @@
                 <input type="password" name="password" placeholder="Password" required className="bg-[#262626] border-[#6bff8f]/20 text-white" />
                 <button type="submit" className="action-btn w-full mt-2">Unlock My Plan <i className="fa-solid fa-arrow-right ml-2"></i></button>
               </form>
-
-              {isBootstrap && (
-                <div className="mt-8 pt-8 border-t border-gray-800">
-                  <h3 className="text-lg font-bold text-white mb-2">First Time Setup</h3>
-                  <p className="text-xs text-gray-400 mb-6">Create the app owner account.</p>
-                  <form onSubmit={handleBootstrap} className="flex flex-col gap-4">
-                    <input name="username" placeholder="Admin Username" required className="bg-[#262626] text-white text-sm py-2 px-3" />
-                    <input type="password" name="password" placeholder="Secure Password" required className="bg-[#262626] text-white text-sm py-2 px-3" />
-                    <label className="flex items-center gap-3 text-sm text-gray-300">
-                      <input type="checkbox" name="superadmin" className="w-4 h-4" /> I am the app owner
-                    </label>
-                    <button type="submit" className="ghost-btn w-full text-sm">Create Platform Account</button>
-                  </form>
-                </div>
-              )}
             </div>
           </div>
         </div>
@@ -158,7 +137,10 @@
 
     // --- Client Views ---
     const ClientDashboard = ({ appData }) => {
-      const { client, plan } = appData || {};
+      const { client } = appData || {};
+      const planData = getPlanData(appData);
+      const calories = planData?.calorieTarget || planData?.nutrition?.calories || planData?.calories || 'N/A';
+
       return (
         <div className="p-5 space-y-6">
           <section>
@@ -173,7 +155,7 @@
             <div>
               <div className="flex justify-between text-xs mb-2">
                 <span className="text-gray-400 font-bold">CALORIES</span>
-                <span className="font-bold text-white">0 / {plan?.effectivePlan?.calorieTarget || 'N/A'} kcal</span>
+                <span className="font-bold text-white">0 / {calories} kcal</span>
               </div>
               <div className="h-2 bg-[#262626] rounded-full overflow-hidden">
                 <div className="h-full w-[15%] kinetic-gradient rounded-full"></div>
@@ -215,9 +197,9 @@
       );
     };
 
-    // --- RESTORED: Client Plan View ---
     const ClientPlanView = ({ appData }) => {
-      const plan = appData?.plan?.effectivePlan;
+      const plan = getPlanData(appData);
+      
       if (!plan) {
         return (
           <div className="p-5 text-center mt-20">
@@ -227,32 +209,42 @@
           </div>
         );
       }
+
+      const calories = plan?.calorieTarget || plan?.nutrition?.calories || plan?.calories || "N/A";
+      const protein = plan?.macros?.protein || plan?.nutrition?.protein || "N/A";
+      const days = plan?.workoutSplit || plan?.workout_plan || plan?.workouts || plan?.routine || [];
+
       return (
         <div className="p-5 space-y-6">
           <div><h2 className="text-2xl font-black text-white">Your Plan</h2><p className="text-sm text-gray-400 mt-1">Review your custom protocols.</p></div>
           <div className="bg-[#1a1919] border border-[#6bff8f]/20 rounded-3xl p-6">
             <h3 className="text-[#6bff8f] text-xs font-bold uppercase tracking-widest mb-3">Profile Summary</h3>
-            <p className="text-sm text-gray-300 leading-relaxed">{plan.profileSummary || "No summary provided."}</p>
+            <p className="text-sm text-gray-300 leading-relaxed">{plan.profileSummary || plan.summary || "Your AI-generated plan is active."}</p>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-[#1a1919] border border-white/5 rounded-2xl p-4 text-center">
-              <div className="text-2xl font-black text-[#ffc940]">{plan.calorieTarget || "N/A"}</div>
+              <div className="text-2xl font-black text-[#ffc940]">{calories}</div>
               <div className="text-[10px] text-gray-400 uppercase tracking-widest mt-1">Calories</div>
             </div>
             <div className="bg-[#1a1919] border border-white/5 rounded-2xl p-4 text-center">
-              <div className="text-2xl font-black text-[#00cba8]">{plan.macros?.protein || "N/A"}</div>
+              <div className="text-2xl font-black text-[#00cba8]">{protein}</div>
               <div className="text-[10px] text-gray-400 uppercase tracking-widest mt-1">Protein</div>
             </div>
           </div>
           <div className="bg-[#1a1919] border border-white/5 rounded-3xl p-6">
             <h3 className="text-white font-bold mb-4 flex items-center gap-2"><i className="fa-solid fa-dumbbell text-[#6bff8f]"></i> Weekly Workout Split</h3>
             <div className="space-y-4">
-              {(plan.workoutSplit || []).map((day, i) => (
+              {days.map((day, i) => (
                 <div key={i} className="border-b border-white/5 pb-4 last:border-0 last:pb-0">
-                  <div className="text-sm font-bold text-[#6bff8f] mb-2">{day.day}</div>
+                  <div className="text-sm font-bold text-[#6bff8f] mb-2">{day.day || `Day ${i+1}`}</div>
+                  {day.warmup && <div className="text-xs text-[#ffc940] mb-2"><i className="fa-solid fa-fire mr-1"></i> {Array.isArray(day.warmup) ? day.warmup.join(', ') : day.warmup}</div>}
                   <ul className="text-sm text-gray-300 space-y-1">
-                    {(day.exercises || []).map((ex, j) => <li key={j}>• {ex}</li>)}
+                    {(day.exercises || day.workout || []).map((ex, j) => {
+                       const exName = typeof ex === 'string' ? ex : (ex.name || ex.exercise);
+                       return <li key={j}>• {exName}</li>;
+                    })}
                   </ul>
+                  {(day.cooldown || day.stretches) && <div className="text-xs text-[#00cba8] mt-2"><i className="fa-solid fa-wind mr-1"></i> {Array.isArray(day.cooldown || day.stretches) ? (day.cooldown || day.stretches).join(', ') : (day.cooldown || day.stretches)}</div>}
                 </div>
               ))}
             </div>
@@ -265,6 +257,9 @@
       const [customFood, setCustomFood] = useState("");
       const [loggedFoods, setLoggedFoods] = useState(appData?.dailyLog?.diet_json?.loggedFoods || []);
       const [saving, setSaving] = useState(false);
+
+      const planData = getPlanData(appData);
+      const meals = planData?.meals || planData?.nutrition?.meals || planData?.diet || [];
 
       const handleAddCustom = (e) => {
         e.preventDefault();
@@ -288,20 +283,43 @@
       return (
         <div className="p-5 space-y-6">
           <div><h2 className="text-2xl font-black text-white">Diet Log</h2></div>
+          
+          {/* AI Diet Plan Rendered Here */}
+          {meals && meals.length > 0 && (
+            <div className="bg-[#1a1919] border border-[#ffc940]/20 rounded-3xl p-6 space-y-4">
+              <h3 className="font-bold text-white flex items-center gap-2"><i className="fa-solid fa-fire text-[#ffc940]"></i> Your AI Diet Plan</h3>
+              <div className="space-y-3">
+                {meals.map((m, i) => {
+                  const mealName = m.meal || m.name || `Meal ${i+1}`;
+                  const mealDetails = m.details || m.description || m.food || JSON.stringify(m);
+                  return (
+                    <div key={i} className="border-b border-white/5 pb-3 last:border-0 last:pb-0">
+                      <div className="text-sm font-bold text-[#ffc940]">{mealName}</div>
+                      <div className="text-xs text-gray-300 mt-1">{mealDetails}</div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
           <div className="bg-[#1a1919] border border-white/5 rounded-3xl p-6 space-y-4">
-            <h3 className="font-bold text-white mb-2"><i className="fa-solid fa-plus text-[#6bff8f] mr-2"></i> Add Custom Food</h3>
+            <h3 className="font-bold text-white mb-2"><i className="fa-solid fa-plus text-[#6bff8f] mr-2"></i> Track Your Food</h3>
             <form onSubmit={handleAddCustom} className="flex gap-2">
-              <input value={customFood} onChange={e => setCustomFood(e.target.value)} placeholder="e.g. 1 Apple..." className="bg-[#262626] border-white/10 text-white text-sm" />
+              <input value={customFood} onChange={e => setCustomFood(e.target.value)} placeholder="e.g. 1 Apple, Protein Shake..." className="bg-[#262626] border-white/10 text-white text-sm" />
               <button type="submit" className="bg-[#6bff8f] text-[#003a12] font-bold px-4 rounded-xl text-sm">Add</button>
             </form>
           </div>
+
           <div className="space-y-3">
+            <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest pl-2">Logged Today</h3>
             {loggedFoods.map((f, i) => (
               <div key={i} className="bg-[#1a1919] border-l-4 border-l-[#6bff8f] rounded-xl p-4 flex justify-between items-center">
                 <span className="text-white text-sm font-medium">{f.name}</span>
                 <button onClick={() => setLoggedFoods(loggedFoods.filter((_, idx) => idx !== i))} className="text-red-400"><i className="fa-solid fa-trash text-xs"></i></button>
               </div>
             ))}
+            {loggedFoods.length === 0 && <p className="text-xs text-gray-500 pl-2">Nothing tracked yet.</p>}
           </div>
           <button onClick={handleSaveLog} disabled={saving} className="action-btn w-full mt-4">{saving ? 'Saving...' : 'Save Diet Log'}</button>
         </div>
@@ -311,22 +329,34 @@
     const ClientWorkoutView = ({ appData, setFlash }) => {
       const [completed, setCompleted] = useState(false);
       const [saving, setSaving] = useState(false);
+      const [selectedDayIdx, setSelectedDayIdx] = useState(0);
       
-      // FIX: Smart regex detection for Cardio exercises to hide the Set/Rep fields
-      const planWorkout = appData?.plan?.effectivePlan?.workoutSplit?.[0]?.exercises?.map((name, i) => {
-        const isCardio = /run|treadmill|sprint|bike|cycle|row|cardio|walk|elliptical|stair/i.test(name);
+      const planData = getPlanData(appData);
+      const days = planData?.workoutSplit || planData?.workout_plan || planData?.workouts || planData?.routine || [];
+      
+      const currentDay = days[selectedDayIdx] || null;
+      const exercisesRaw = currentDay?.exercises || currentDay?.workout || currentDay?.movements || [];
+
+      // Smart parse of exercises to identify cardio accurately
+      const todayWorkout = exercisesRaw.map((ex, i) => {
+        const name = typeof ex === 'string' ? ex : (ex.name || ex.exercise || "Unknown Exercise");
+        const isCardio = /run|jog|treadmill|sprint|bike|cycle|row|cardio|walk|elliptical|stair|swim|step/i.test(name);
         return {
-           id: i, name, type: isCardio ? "cardio" : "strength", targetSets: 3, targetReps: isCardio ? "N/A" : "10" 
+           id: i, 
+           name: name, 
+           type: isCardio ? "cardio" : "strength", 
+           targetSets: ex.sets || 3, 
+           targetReps: ex.reps || (isCardio ? "N/A" : "10"),
+           duration: ex.duration || ""
         };
       });
-      
-      const todayWorkout = planWorkout || [{ id: 1, name: "Barbell Squats", type: "strength", targetSets: 3, targetReps: "8-10" }];
 
       const handleSaveLog = async (e) => {
         e.preventDefault();
         setSaving(true);
         const data = Object.fromEntries(new FormData(e.target).entries());
         data.completed = completed;
+        data.dayLogged = currentDay?.day || `Day ${selectedDayIdx+1}`;
         try {
           await api('/api/client/daily-log', {
             method: 'POST', body: JSON.stringify({ date: new Date().toISOString().split('T')[0], type: 'workout', data })
@@ -336,16 +366,48 @@
         setSaving(false);
       };
 
+      if (days.length === 0) {
+         return <div className="p-8 text-center text-gray-400 mt-10">No active workout plan found.</div>;
+      }
+
+      const warmup = currentDay?.warmup;
+      const cooldown = currentDay?.cooldown || currentDay?.stretches;
+
       return (
         <form onSubmit={handleSaveLog} className="p-5 space-y-6">
-          <div><h2 className="text-2xl font-black text-white">Today's Workout</h2></div>
+          <div><h2 className="text-2xl font-black text-white">Workout Log</h2></div>
+
+          {/* RESTORED: Day Selector Tabs */}
+          <div className="flex gap-2 overflow-x-auto pb-2 mb-2 scrollbar-hide">
+            {days.map((d, i) => (
+              <button 
+                key={i} 
+                type="button"
+                onClick={() => setSelectedDayIdx(i)}
+                className={`whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold transition-colors ${selectedDayIdx === i ? 'bg-[#6bff8f] text-[#003a12]' : 'bg-[#1a1919] text-gray-400 border border-white/5'}`}
+              >
+                {d.day || `Day ${i+1}`}
+              </button>
+            ))}
+          </div>
+
+          {/* NEW: Warmup Block */}
+          {warmup && (
+            <div className="bg-[#1a1919] border border-[#ffc940]/20 rounded-2xl p-4">
+               <h3 className="text-[#ffc940] text-xs font-bold uppercase tracking-widest mb-2"><i className="fa-solid fa-fire mr-1"></i> Warm-up Routine</h3>
+               <p className="text-sm text-gray-300 whitespace-pre-wrap">{Array.isArray(warmup) ? warmup.join(', ') : warmup}</p>
+            </div>
+          )}
+
           <div className="space-y-4">
-            {todayWorkout.map((ex) => {
+            {todayWorkout.length === 0 ? (
+              <p className="text-sm text-gray-500 italic">Rest day or no exercises planned.</p>
+            ) : todayWorkout.map((ex) => {
               const isCardio = ex.type === 'cardio';
               return (
                 <div key={ex.id} className="bg-[#1a1919] border border-white/5 rounded-3xl overflow-hidden">
                   <div className="bg-[#262626]/50 p-4 border-b border-white/5 flex justify-between items-center">
-                    <h3 className="font-bold text-white text-sm">{ex.name}</h3>
+                    <h3 className="font-bold text-white text-sm pr-2">{ex.name}</h3>
                     <span className="text-[10px] uppercase font-bold text-[#6bff8f] bg-[#6bff8f]/10 px-2 py-1 rounded">
                       {isCardio ? 'Cardio' : 'Strength'}
                     </span>
@@ -355,8 +417,8 @@
                     {isCardio ? (
                       <div className="flex gap-4 items-end">
                         <div className="flex-1">
-                          <label className="text-[10px] text-gray-400 font-bold uppercase block mb-1">Duration (Minutes)</label>
-                          <input type="number" name={`ex_${ex.id}_duration`} placeholder="e.g. 15" className="bg-[#0b1628] text-white text-sm border-white/10" />
+                          <label className="text-[10px] text-gray-400 font-bold uppercase block mb-1">Target: {ex.duration || "N/A"}</label>
+                          <input type="number" name={`ex_${ex.id}_duration`} placeholder="Mins Logged" className="bg-[#0b1628] text-white text-sm border-white/10" />
                         </div>
                         <div className="flex-1">
                           <label className="text-[10px] text-gray-400 font-bold uppercase block mb-1">Notes</label>
@@ -380,6 +442,15 @@
               );
             })}
           </div>
+
+          {/* NEW: Cooldown Block */}
+          {cooldown && (
+            <div className="bg-[#1a1919] border border-[#00cba8]/20 rounded-2xl p-4">
+               <h3 className="text-[#00cba8] text-xs font-bold uppercase tracking-widest mb-2"><i className="fa-solid fa-wind mr-1"></i> Cooldown & Stretch</h3>
+               <p className="text-sm text-gray-300 whitespace-pre-wrap">{Array.isArray(cooldown) ? cooldown.join(', ') : cooldown}</p>
+            </div>
+          )}
+
           <div className="bg-[#1a1919] border border-white/5 rounded-3xl p-6">
             <label className="flex items-center gap-4 cursor-pointer">
               <input type="checkbox" checked={completed} onChange={(e) => setCompleted(e.target.checked)} className="w-5 h-5 accent-[#6bff8f]" />
@@ -438,8 +509,8 @@
 
       useEffect(() => { api('/api/app/bootstrap').then(res => setAppData(res)).catch(() => {}); }, []);
 
-      // FIX: Dynamically show Intake if no plan is published, otherwise show Plan
-      const hasPlan = !!appData?.plan?.effectivePlan;
+      // Uses our robust parser to determine if plan is active
+      const hasPlan = !!getPlanData(appData);
 
       return (
         <div className="max-w-md mx-auto min-h-screen bg-[#0e0e0e] pb-24">
@@ -535,7 +606,7 @@
     const AdminClientDetail = ({ client, onBack, setFlash }) => {
       const [details, setDetails] = useState(null);
       const [generatingPlan, setGeneratingPlan] = useState(false);
-      const [activeTab, setActiveTab] = useState('plan'); // 'plan' or 'logs'
+      const [activeTab, setActiveTab] = useState('plan'); 
 
       const fetchDetails = async () => {
         try { const res = await api(`/api/admin/clients/${client.id}`); setDetails(res); } catch (err) { setFlash({ err: "Failed to load details." }); }
