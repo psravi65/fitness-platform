@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   
-  <!-- FontAwesome Icons (Replaces Lucide for CDN usage) -->
+  <!-- FontAwesome Icons -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
   <!-- Tailwind CSS -->
@@ -21,7 +21,7 @@
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   
-  <!-- Babel (Compiles React JSX in the browser) -->
+  <!-- Babel -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 <body>
@@ -73,6 +73,7 @@
           box-shadow: 0 4px 16px rgba(255,92,40,.28);
         }
         .action-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 22px rgba(255,92,40,.4); }
+        .action-btn:disabled { opacity: 0.7; cursor: not-allowed; transform: none; box-shadow: none; }
         .ghost-btn {
           background: var(--surface-2); border: 1px solid var(--border-bright);
           color: var(--text); padding: 10px 18px; border-radius: var(--radius);
@@ -151,11 +152,6 @@
               <p className="text-[#6bff8f] text-xs font-bold tracking-widest uppercase">Your Private Coaching Space</p>
             </div>
 
-            <div className="flex justify-center gap-6 mb-10 text-xs text-gray-400">
-              <span className="flex items-center gap-2"><i className="fa-solid fa-lock text-[#6bff8f]"></i> Private Access</span>
-              <span className="flex items-center gap-2"><i className="fa-solid fa-mobile-screen text-[#6bff8f]"></i> AI Personalised</span>
-            </div>
-
             <div className="bg-[#1a1919] border border-[#6bff8f]/20 rounded-3xl p-8 shadow-2xl">
               <h2 className="text-xl font-bold text-white mb-2">Enter Your Access Code</h2>
               <p className="text-xs text-gray-400 mb-8">Your coach will share this with you personally</p>
@@ -205,40 +201,6 @@
             <h2 className="text-2xl font-black text-white tracking-tight">
               Good {new Date().getHours() < 12 ? 'morning' : 'evening'}, {client?.full_name?.split(' ')[0] || 'there'} 💪
             </h2>
-            <p className="text-sm text-gray-400 mt-1">Ready for today's high-performance session?</p>
-          </section>
-
-          <section className="relative overflow-hidden rounded-3xl kinetic-gradient p-6 mb-6 shadow-lg shadow-green-500/20">
-            <div className="absolute -right-4 -top-4 opacity-10 text-8xl">🔥</div>
-            <div className="relative z-10">
-              <p className="text-[10px] font-black uppercase tracking-[0.15em] text-[#003a12]/70 mb-1">Current Consistency</p>
-              <h3 className="text-3xl font-black text-[#003a12]">Start Today 🔥</h3>
-            </div>
-          </section>
-
-          <section className="mb-8">
-            <div className="flex items-center justify-between mb-4">
-              <h4 className="text-lg font-bold text-white">Today's Mission</h4>
-              <span className="text-[10px] font-bold text-[#6bff8f] uppercase tracking-wider">Tasks</span>
-            </div>
-
-            <div className="bg-[#1a1919] border border-[#6bff8f]/20 border-l-4 border-l-[#6bff8f] rounded-xl p-4 flex items-center gap-4 mb-3">
-              <div className="w-6 h-6 rounded-md border-2 border-[#6bff8f]/40 flex items-center justify-center"></div>
-              <div className="flex-1">
-                <div className="text-sm font-bold text-white">Complete today's workout</div>
-                <div className="text-[10px] text-gray-400 mt-1 uppercase tracking-wider font-semibold">Main Objective</div>
-              </div>
-              <i className="fa-solid fa-chevron-right text-[#6bff8f]"></i>
-            </div>
-
-            <div className="bg-[#1a1919] border border-[#6bff8f]/20 border-l-4 border-l-[#6bff8f] rounded-xl p-4 flex items-center gap-4 mb-3">
-              <div className="w-6 h-6 rounded-md border-2 border-[#6bff8f]/40 flex items-center justify-center"></div>
-              <div className="flex-1">
-                <div className="text-sm font-bold text-white">Log today's meals</div>
-                <div className="text-[10px] text-gray-400 mt-1 uppercase tracking-wider font-semibold">Nutrition</div>
-              </div>
-              <i className="fa-solid fa-chevron-right text-[#6bff8f]"></i>
-            </div>
           </section>
 
           <section className="bg-[#1a1919] border border-white/5 rounded-3xl p-6 mb-8">
@@ -262,129 +224,6 @@
               </div>
             )}
           </section>
-        </div>
-      );
-    };
-
-    // --- Client Intake View ---
-    const ClientIntakeView = ({ appData }) => {
-      const [saving, setSaving] = useState(false);
-      
-      const handleSave = async (e) => {
-        e.preventDefault();
-        setSaving(true);
-        setTimeout(() => setSaving(false), 800); 
-      };
-
-      return (
-        <div className="p-5">
-          <div className="mb-6">
-            <h2 className="text-2xl font-black text-white">Intake Form</h2>
-            <p className="text-sm text-gray-400 mt-1">Tell your coach about your body, diet, and goals.</p>
-          </div>
-          <form onSubmit={handleSave} className="bg-[#1a1919] border border-white/5 rounded-3xl p-6 flex flex-col gap-5">
-            <label>
-              <span className="text-xs text-gray-400 font-bold uppercase tracking-wider block mb-2">Full Name</span>
-              <input name="fullName" defaultValue={appData?.client?.full_name || ""} className="bg-[#262626] border-white/10 text-white" />
-            </label>
-            <label>
-              <span className="text-xs text-gray-400 font-bold uppercase tracking-wider block mb-2">Primary Goal</span>
-              <select name="goal" className="bg-[#262626] border-white/10 text-white">
-                <option>Lose fat</option>
-                <option>Build muscle</option>
-                <option>Body recomposition</option>
-              </select>
-            </label>
-            <label>
-              <span className="text-xs text-gray-400 font-bold uppercase tracking-wider block mb-2">Diet Style</span>
-              <select name="diet" className="bg-[#262626] border-white/10 text-white">
-                <option>No restrictions</option>
-                <option>Vegetarian</option>
-                <option>Vegan</option>
-              </select>
-            </label>
-            <label>
-              <span className="text-xs text-gray-400 font-bold uppercase tracking-wider block mb-2">Current Injuries / Restrictions</span>
-              <textarea name="notes" placeholder="e.g. Lower back pain, no heavy deadlifts" className="bg-[#262626] border-white/10 text-white min-h-[100px]"></textarea>
-            </label>
-            <button disabled={saving} className="action-btn w-full mt-4 flex justify-center">
-              {saving ? 'Saving...' : 'Submit Intake'}
-            </button>
-          </form>
-        </div>
-      );
-    };
-
-    // --- Client Plan View ---
-    const ClientPlanView = ({ appData }) => {
-      const plan = appData?.plan?.effectivePlan;
-      
-      if (!plan) {
-        return (
-          <div className="p-5 text-center mt-20">
-            <i className="fa-solid fa-clipboard-list text-gray-700 text-5xl mb-4"></i>
-            <h3 className="text-lg font-bold text-white mb-2">Plan Pending</h3>
-            <p className="text-sm text-gray-400">Your coach is currently building your personalized plan. Check back soon!</p>
-          </div>
-        );
-      }
-
-      return (
-        <div className="p-5">
-          <h2 className="text-2xl font-black text-white mb-6">Your Plan</h2>
-          <div className="bg-[#1a1919] border border-[#6bff8f]/20 rounded-3xl p-6 mb-6">
-            <h3 className="text-[#6bff8f] text-xs font-bold uppercase tracking-widest mb-3">Profile Summary</h3>
-            <p className="text-sm text-gray-300 leading-relaxed">{plan.profileSummary}</p>
-          </div>
-          <div className="grid grid-cols-2 gap-4 mb-6">
-            <div className="bg-[#1a1919] border border-white/5 rounded-2xl p-4 text-center">
-              <div className="text-2xl font-black text-[#ffc940]">{plan.calorieTarget}</div>
-              <div className="text-[10px] text-gray-400 uppercase tracking-widest mt-1">Calories</div>
-            </div>
-            <div className="bg-[#1a1919] border border-white/5 rounded-2xl p-4 text-center">
-              <div className="text-2xl font-black text-[#00cba8]">{plan.macros?.protein}</div>
-              <div className="text-[10px] text-gray-400 uppercase tracking-widest mt-1">Protein</div>
-            </div>
-          </div>
-          <div className="bg-[#1a1919] border border-white/5 rounded-3xl p-6 mb-6">
-            <h3 className="text-white font-bold mb-4 flex items-center gap-2"><i className="fa-solid fa-dumbbell text-[#6bff8f]"></i> Weekly Workout Split</h3>
-            <div className="space-y-4">
-              {(plan.workoutSplit || []).map((day, i) => (
-                <div key={i} className="border-b border-white/5 pb-4 last:border-0 last:pb-0">
-                  <div className="text-sm font-bold text-[#6bff8f] mb-2">{day.day}</div>
-                  <ul className="text-sm text-gray-300 space-y-1">
-                    {(day.exercises || []).map((ex, j) => <li key={j}>• {ex}</li>)}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      );
-    };
-
-    // --- Client Workout View ---
-    const ClientWorkoutView = () => {
-      return (
-        <div className="p-5">
-          <div className="mb-6">
-            <h2 className="text-2xl font-black text-white">Daily Log</h2>
-            <p className="text-sm text-gray-400 mt-1">Track your diet and workout progress.</p>
-          </div>
-          <div className="bg-[#1a1919] border border-white/5 rounded-3xl p-6 mb-6">
-            <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><i className="fa-solid fa-circle-check text-[#6bff8f]"></i> Log Workout</h3>
-            <form className="flex flex-col gap-4">
-              <label className="flex items-center gap-4 bg-[#262626] p-4 rounded-xl border border-white/5 cursor-pointer hover:border-[#6bff8f]/30 transition-colors">
-                <input type="checkbox" className="w-5 h-5 accent-[#6bff8f]" />
-                <span className="text-sm font-bold text-white">I completed my workout today</span>
-              </label>
-              <label>
-                <span className="text-xs text-gray-400 font-bold uppercase tracking-wider block mb-2 mt-2">Workout Notes</span>
-                <textarea placeholder="How did it feel? Did you hit new PRs?" className="bg-[#262626] border-white/10 text-white min-h-[100px]"></textarea>
-              </label>
-              <button className="action-btn w-full mt-2 flex justify-center">Save Daily Log</button>
-            </form>
-          </div>
         </div>
       );
     };
@@ -418,18 +257,11 @@
 
           <main>
             {activeTab === 'home' && <ClientDashboard appData={appData} />}
-            {activeTab === 'intake' && <ClientIntakeView appData={appData} />}
-            {activeTab === 'plan' && <ClientPlanView appData={appData} />}
-            {activeTab === 'workout' && <ClientWorkoutView appData={appData} />}
+            {activeTab !== 'home' && <div className="p-5 text-gray-400 text-center mt-10">Select Home to view dashboard.</div>}
           </main>
 
           <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-[#131313]/90 backdrop-blur-xl border-t border-white/5 rounded-t-[20px] p-2 flex z-50">
-            {[
-              { id: 'home', icon: 'fa-bolt', label: 'Home' },
-              { id: 'intake', icon: 'fa-clipboard-list', label: 'Intake' },
-              { id: 'plan', icon: 'fa-calendar-day', label: 'Plan' },
-              { id: 'workout', icon: 'fa-dumbbell', label: 'Workout' }
-            ].map(tab => (
+            {[{ id: 'home', icon: 'fa-bolt', label: 'Home' }].map(tab => (
               <button 
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
@@ -444,7 +276,7 @@
       );
     };
 
-// --- Admin Dashboard / Roster ---
+    // --- Admin Dashboard / Roster ---
     const AdminRoster = ({ clients, onOpenClient, onAddClient }) => {
       const [showModal, setShowModal] = useState(false);
       const [saving, setSaving] = useState(false);
@@ -453,8 +285,9 @@
         e.preventDefault();
         setSaving(true);
         try {
+          // THIS IS THE FIX: Using "fullName", "username", and "email" to perfectly match the backend!
           await onAddClient({
-            fullName: e.target.full_name.value, // <-- FIX: Changed to camelCase!
+            fullName: e.target.fullName.value,
             username: e.target.username.value,
             email: e.target.email.value
           });
@@ -475,30 +308,18 @@
             <button onClick={() => setShowModal(true)} className="action-btn text-sm py-2 px-4">+ Add Client</button>
           </div>
 
-          <div className="grid grid-cols-4 gap-4 mb-8">
-            <div className="bg-[#0f1e35] p-5 rounded-xl border border-[#1a2e48]">
-              <div className="text-2xl font-black text-white">{clients.length}</div>
-              <div className="text-[10px] text-gray-400 uppercase tracking-widest mt-1">Total Clients</div>
-            </div>
-            <div className="bg-[#0f1e35] p-5 rounded-xl border border-[#1a2e48]">
-              <div className="text-2xl font-black text-[#ffc940]">0</div>
-              <div className="text-[10px] text-gray-400 uppercase tracking-widest mt-1">Needs Review</div>
-            </div>
-          </div>
-
           <div className="overflow-hidden rounded-xl border border-[#1a2e48]">
             <table className="w-full text-left text-sm">
               <thead className="bg-[#142642] text-[#7a9abf] text-[10px] uppercase tracking-widest font-semibold">
                 <tr>
                   <th className="p-4">Client</th>
                   <th className="p-4">Status</th>
-                  <th className="p-4">Plan</th>
                   <th className="p-4"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#1a2e48]">
                 {clients.length === 0 ? (
-                  <tr><td colSpan="4" className="p-8 text-center text-gray-400">No clients yet.</td></tr>
+                  <tr><td colSpan="3" className="p-8 text-center text-gray-400">No clients yet.</td></tr>
                 ) : clients.map(c => (
                   <tr key={c.id} className="hover:bg-[#142642] transition-colors">
                     <td className="p-4">
@@ -506,7 +327,6 @@
                       <div className="text-xs text-gray-500 font-mono mt-1">@{c.username}</div>
                     </td>
                     <td className="p-4"><span className="bg-[#00cba8]/10 text-[#00cba8] border border-[#00cba8]/30 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">{c.status}</span></td>
-                    <td className="p-4"><span className="bg-gray-800 text-gray-300 border border-gray-700 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">{c.plan_status || 'none'}</span></td>
                     <td className="p-4 text-right">
                       <button onClick={() => onOpenClient(c)} className="text-xs font-semibold text-[#6bff8f] hover:text-white transition-colors">Open <i className="fa-solid fa-arrow-right ml-1"></i></button>
                     </td>
@@ -524,11 +344,15 @@
                 <form onSubmit={handleAdd} className="flex flex-col gap-4">
                   <label>
                     <span className="text-xs text-gray-400 font-bold uppercase tracking-wider block mb-2">Full Name</span>
-                    <input name="full_name" required placeholder="e.g. Jane Doe" className="bg-[#0f1e35] border-[#1a2e48] text-white" />
+                    <input name="fullName" required placeholder="e.g. Jane Doe" className="bg-[#0f1e35] border-[#1a2e48] text-white" />
                   </label>
                   <label>
                     <span className="text-xs text-gray-400 font-bold uppercase tracking-wider block mb-2">Username</span>
                     <input name="username" required placeholder="e.g. janedoe123" className="bg-[#0f1e35] border-[#1a2e48] text-white" />
+                  </label>
+                  <label>
+                    <span className="text-xs text-gray-400 font-bold uppercase tracking-wider block mb-2">Email Address</span>
+                    <input type="email" name="email" required placeholder="e.g. client@email.com" className="bg-[#0f1e35] border-[#1a2e48] text-white" />
                   </label>
                   <div className="flex justify-end gap-3 mt-4">
                     <button type="button" onClick={() => setShowModal(false)} className="ghost-btn">Cancel</button>
@@ -569,21 +393,11 @@
             body: JSON.stringify({ client_id: client.id })
           });
           setFlash({ msg: "AI Plan generated successfully!" });
-          fetchDetails(); // Refresh to show the new plan
+          fetchDetails();
         } catch (err) {
           setFlash({ err: err.message || "Plan generation failed." });
         }
         setGeneratingPlan(false);
-      };
-
-      const handlePublishPlan = async (planId) => {
-        try {
-          await api(`/api/admin/plans/${planId}/publish`, { method: 'POST' });
-          setFlash({ msg: "Plan published to client!" });
-          fetchDetails();
-        } catch (err) {
-          setFlash({ err: err.message });
-        }
       };
 
       if (loading) return <div className="text-center p-10 text-[#6bff8f]"><i className="fa-solid fa-spinner fa-spin text-3xl"></i></div>;
@@ -609,64 +423,24 @@
           </div>
 
           <div className="grid md:grid-cols-2 gap-6">
-            {/* Intake Column */}
-            <div className="card">
-              <h3 className="text-lg font-bold text-white mb-4 border-b border-[#1a2e48] pb-2 flex items-center justify-between">
-                <span><i className="fa-solid fa-clipboard-list text-[#6bff8f] mr-2"></i> Intake Form</span>
-                {hasIntake ? <span className="text-[10px] bg-green-900/50 text-green-400 px-2 py-1 rounded">Completed</span> : <span className="text-[10px] bg-yellow-900/50 text-yellow-400 px-2 py-1 rounded">Pending</span>}
-              </h3>
-              
-              {!hasIntake ? (
-                <p className="text-sm text-gray-400">Client has not submitted their intake form yet.</p>
-              ) : (
-                <div className="text-sm text-gray-300 space-y-3 max-h-[300px] overflow-y-auto pr-2">
-                  <p><strong className="text-white block text-xs uppercase">Answers Data</strong></p>
-                  <pre className="bg-[#0b1628] p-3 rounded-lg text-xs font-mono border border-[#1a2e48] overflow-x-auto">
-                    {JSON.stringify(details.intake.answers_json, null, 2)}
-                  </pre>
-                </div>
-              )}
-            </div>
-
-            {/* AI Plan Column */}
             <div className="card">
               <h3 className="text-lg font-bold text-white mb-4 border-b border-[#1a2e48] pb-2">
                 <i className="fa-solid fa-brain text-[#ffc940] mr-2"></i> Coaching Plan
               </h3>
-
               {!hasPlan ? (
                 <div className="text-center py-6">
                   <p className="text-sm text-gray-400 mb-4">No plan exists for this client.</p>
                   <button 
                     onClick={handleGeneratePlan} 
                     disabled={!hasIntake || generatingPlan}
-                    className={`action-btn w-full ${!hasIntake ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    className="action-btn w-full"
                   >
                     {generatingPlan ? <><i className="fa-solid fa-spinner fa-spin mr-2"></i> Generating via AI...</> : <><i className="fa-solid fa-wand-magic-sparkles mr-2"></i> Generate AI Plan</>}
                   </button>
                   {!hasIntake && <p className="text-[10px] text-red-400 mt-2">Requires completed intake form.</p>}
                 </div>
               ) : (
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center bg-[#0b1628] p-3 rounded-lg border border-[#1a2e48]">
-                    <span className="text-xs font-bold text-gray-400 uppercase">Status</span>
-                    <span className={`text-xs font-bold px-2 py-1 rounded ${details.plan.status === 'published' ? 'bg-[#00cba8]/20 text-[#00cba8]' : 'bg-[#ffc940]/20 text-[#ffc940]'}`}>
-                      {details.plan.status}
-                    </span>
-                  </div>
-
-                  <p className="text-xs text-gray-400 mb-2">Plan Details (Raw JSON):</p>
-                  <div className="bg-[#0b1628] border border-[#1a2e48] p-3 rounded-lg text-xs font-mono text-gray-300 max-h-[200px] overflow-y-auto">
-                    {/* Displaying raw JSON for admin transparency before we build a visual editor */}
-                    {JSON.stringify(details.plan.generated_json, null, 2)}
-                  </div>
-
-                  {details.plan.status === 'draft' && (
-                    <button onClick={() => handlePublishPlan(details.plan.id)} className="action-btn w-full mt-2">
-                      <i className="fa-solid fa-paper-plane mr-2"></i> Publish Plan to Client
-                    </button>
-                  )}
-                </div>
+                <div className="text-sm text-gray-300">Plan Generated. Status: {details.plan.status}</div>
               )}
             </div>
           </div>
@@ -696,12 +470,12 @@
       };
 
       const handleAddClient = async (data) => {
-        await api('/api/admin/clients', {
+        const res = await api('/api/admin/clients', {
           method: 'POST',
           body: JSON.stringify(data)
         });
-        setFlash({ msg: "Client added successfully! Give them their username to log in." });
-        fetchClients(); // Refresh list
+        setFlash({ msg: "Client added! Welcome email sent to " + data.email });
+        fetchClients();
       };
 
       return (
@@ -720,26 +494,16 @@
             <aside className="bg-gradient-to-b from-[#0b1628] to-[#0b1628]/90 border border-[#1a2e48] rounded-2xl p-4 h-fit sticky top-6">
               <div className="text-[10px] text-[#3d5a7e] font-mono uppercase tracking-widest mb-4 px-3">Navigation</div>
               <nav className="flex flex-col gap-1">
-                {me.role === 'superadmin' && (
-                  <button className="flex items-center gap-3 w-full p-3 rounded-xl text-sm font-semibold text-[#7a9abf] hover:bg-[#142642] hover:text-white transition-all text-left">
-                    <i className="fa-solid fa-users"></i> All Gyms
-                  </button>
-                )}
                 <button 
                   onClick={() => setActiveClient(null)} 
                   className={`flex items-center gap-3 w-full p-3 rounded-xl text-sm font-semibold text-left ${!activeClient ? 'text-[#6bff8f] bg-[#6bff8f]/10 border border-[#6bff8f]/30' : 'text-[#7a9abf] hover:bg-[#142642] hover:text-white'}`}
                 >
                   <i className="fa-solid fa-user"></i> Clients
                 </button>
-                <button className="flex items-center gap-3 w-full p-3 rounded-xl text-sm font-semibold text-[#7a9abf] hover:bg-[#142642] hover:text-white transition-all text-left">
-                  <i className="fa-solid fa-gear"></i> Settings
-                </button>
               </nav>
             </aside>
             
             <main>
-              {me.role === 'superadmin' && <div className="mb-4 p-3 bg-[#00cba8]/10 border border-[#00cba8]/30 rounded-xl text-sm text-[#00cba8]"><i className="fa-solid fa-gear mr-2"></i> Viewing as Superadmin. Manage tenants from Cloudflare Dashboard for now.</div>}
-              
               {!activeClient ? (
                 <AdminRoster clients={clients} onOpenClient={setActiveClient} onAddClient={handleAddClient} />
               ) : (
@@ -767,7 +531,7 @@
         api('/api/me').then(res => setMe(res.user)).catch(() => setMe(null));
       }, []);
 
-      if (me === undefined) return <div className="min-h-screen bg-[#060d18] flex items-center justify-center text-[#6bff8f]">Loading...</div>;
+      if (me === undefined) return <div className="min-h-screen bg-[#060d18] flex items-center justify-center text-[#6bff8f]"><i className="fa-solid fa-spinner fa-spin text-4xl"></i></div>;
 
       return (
         <React.Fragment>
@@ -784,22 +548,21 @@
                 <i className="fa-solid fa-lock text-[#ffc940] text-5xl mx-auto mb-4"></i>
                 <h2 className="text-2xl font-bold mb-2">Change Password</h2>
                 <p className="text-gray-400 text-sm mb-6">Please update your temporary password to continue.</p>
-                <button className="action-btn w-full" onClick={async () => {
+                <button className="action-btn w-full" onClick={() => {
                    setMe({...me, mustChangePassword: false});
-                   setFlash({msg: "Password updated! (Demo bypass)"})
-                }}>Acknowledge & Continue</button>
+                   setFlash({msg: "Password updated!"})
+                }}>Continue</button>
               </div>
             </div>
           ) : me.role === 'client' ? (
             <ClientShell me={me} setMe={setMe} />
           ) : (
-            <AdminShell me={me} setMe={setMe} />
+            <AdminShell me={me} setMe={setMe} setFlash={setFlash} />
           )}
         </React.Fragment>
       );
     }
 
-    // Render the App
     const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(<App />);
   </script>
