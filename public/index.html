@@ -100,6 +100,24 @@
         } catch (err) { setFlash({ err: err.message }); }
       };
 
+      const handleBootstrap = async (e) => {
+        e.preventDefault();
+        try {
+          await api('/api/bootstrap-admin', {
+            method: 'POST',
+            body: JSON.stringify({
+              username: e.target.username.value,
+              password: e.target.password.value,
+              superadmin: e.target.superadmin.checked
+            })
+          });
+          setFlash({ msg: "Account created. You can log in now." });
+          setIsBootstrap(false);
+        } catch (err) {
+          setFlash({ err: err.message });
+        }
+      };
+
       return (
         <div className="min-h-screen flex flex-col items-center justify-center p-6">
           <div className="w-full max-w-md">
@@ -117,6 +135,21 @@
                 <input type="password" name="password" placeholder="Password" required className="bg-[#262626] border-[#6bff8f]/20 text-white" />
                 <button type="submit" className="action-btn w-full mt-2">Unlock My Plan <i className="fa-solid fa-arrow-right ml-2"></i></button>
               </form>
+
+              {isBootstrap && (
+                <div className="mt-8 pt-8 border-t border-gray-800">
+                  <h3 className="text-lg font-bold text-white mb-2">First Time Setup</h3>
+                  <p className="text-xs text-gray-400 mb-6">Create the app owner account.</p>
+                  <form onSubmit={handleBootstrap} className="flex flex-col gap-4">
+                    <input name="username" placeholder="Admin Username" required className="bg-[#262626] text-white text-sm py-2 px-3" />
+                    <input type="password" name="password" placeholder="Secure Password" required className="bg-[#262626] text-white text-sm py-2 px-3" />
+                    <label className="flex items-center gap-3 text-sm text-gray-300">
+                      <input type="checkbox" name="superadmin" className="w-4 h-4" /> I am the app owner
+                    </label>
+                    <button type="submit" className="ghost-btn w-full text-sm">Create Platform Account</button>
+                  </form>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -206,7 +239,6 @@
     };
 
     const ClientWorkoutView = () => {
-      // Mock workout data representing a much better structured UI
       const todayWorkout = [
         { id: 1, name: "Barbell Squats", type: "strength", targetSets: 3, targetReps: "8-10" },
         { id: 2, name: "Dumbbell Lunges", type: "strength", targetSets: 3, targetReps: "12 / leg" },
@@ -409,6 +441,16 @@
         setGeneratingPlan(false);
       };
 
+      const handlePublishPlan = async (planId) => {
+        try {
+          await api(`/api/admin/plans/${planId}/publish`, { method: 'POST' });
+          setFlash({ msg: "Plan published to client!" });
+          fetchDetails();
+        } catch (err) {
+          setFlash({ err: err.message });
+        }
+      };
+
       if (!details) return <div className="text-center p-10"><i className="fa-solid fa-spinner fa-spin text-3xl text-[#6bff8f]"></i></div>;
 
       return (
@@ -426,7 +468,25 @@
                   <p className="text-sm text-gray-400 mb-4">No plan exists.</p>
                   <button onClick={handleGeneratePlan} disabled={!details.intake || generatingPlan} className="action-btn w-full">{generatingPlan ? 'Generating...' : 'Generate AI Plan'}</button>
                 </div>
-              ) : (<div className="text-sm text-gray-300">Plan Status: {details.plan.status}</div>)}
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center bg-[#0b1628] p-3 rounded-lg border border-[#1a2e48]">
+                    <span className="text-xs font-bold text-gray-400 uppercase">Status</span>
+                    <span className={`text-xs font-bold px-2 py-1 rounded ${details.plan.status === 'published' ? 'bg-[#00cba8]/20 text-[#00cba8]' : 'bg-[#ffc940]/20 text-[#ffc940]'}`}>
+                      {details.plan.status}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-400 mb-2">Plan Details (Raw JSON):</p>
+                  <div className="bg-[#0b1628] border border-[#1a2e48] p-3 rounded-lg text-xs font-mono text-gray-300 max-h-[300px] overflow-y-auto whitespace-pre-wrap">
+                    {JSON.stringify(details.plan.generated_json, null, 2)}
+                  </div>
+                  {details.plan.status === 'draft' && (
+                    <button onClick={() => handlePublishPlan(details.plan.id)} className="action-btn w-full mt-2">
+                      <i className="fa-solid fa-paper-plane mr-2"></i> Publish Plan to Client
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
