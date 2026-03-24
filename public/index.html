@@ -238,7 +238,7 @@
     };
 
     const ClientPlanView = ({ appData }) => {
-      const [planTab, setPlanTab] = useState('workout'); // 'workout' or 'diet'
+      const [planTab, setPlanTab] = useState('workout'); 
       const plan = getPlanData(appData);
       
       if (!plan) {
@@ -251,7 +251,7 @@
         );
       }
 
-      // --- Workout Extraction ---
+      // --- Workout Extraction (Robust Array Parsing) ---
       let daysRaw = plan?.workoutSplit || plan?.workout_plan || plan?.workouts || plan?.routine || [];
       let days = [];
       if (Array.isArray(daysRaw)) {
@@ -296,7 +296,8 @@
       const renderMealNode = (rawNode) => {
         let node = rawNode;
         if (typeof node === 'string') {
-          const trimmed = node.trim();
+          let trimmed = node.trim();
+          if (trimmed.toLowerCase().startsWith('options:')) trimmed = trimmed.substring(8).trim();
           if ((trimmed.startsWith('[') && trimmed.endsWith(']')) || (trimmed.startsWith('{') && trimmed.endsWith('}'))) {
             try { node = JSON.parse(trimmed); } catch(e) {}
           }
@@ -381,12 +382,14 @@
           {/* Toggle Buttons */}
           <div className="flex gap-2 p-1 bg-[#1a1919] rounded-xl border border-white/5">
             <button 
+              type="button"
               onClick={() => setPlanTab('workout')} 
               className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${planTab === 'workout' ? 'bg-[#6bff8f] text-[#003a12]' : 'text-gray-400 hover:text-white'}`}
             >
               Workout Plan
             </button>
             <button 
+              type="button"
               onClick={() => setPlanTab('diet')} 
               className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${planTab === 'diet' ? 'bg-[#ffc940] text-[#003a12]' : 'text-gray-400 hover:text-white'}`}
             >
@@ -408,10 +411,14 @@
                     <div className="text-sm font-bold text-[#6bff8f] mb-2">{day.day || `Day ${i+1}`}</div>
                     {day.warmup && <div className="text-xs text-[#ffc940] mb-2"><i className="fa-solid fa-fire mr-1"></i> {Array.isArray(day.warmup) ? day.warmup.join(', ') : day.warmup}</div>}
                     <ul className="text-sm text-gray-300 space-y-1">
-                      {(day.exercises || day.workout || []).map((ex, j) => {
-                         const exName = typeof ex === 'string' ? ex : (ex.name || ex.exercise);
-                         return <li key={j}>• {exName}</li>;
-                      })}
+                      {(() => {
+                         const rawExercises = day.exercises || day.workout || [];
+                         const exArray = Array.isArray(rawExercises) ? rawExercises : [rawExercises];
+                         return exArray.map((ex, j) => {
+                            const exName = typeof ex === 'string' ? ex : (ex?.name || ex?.exercise || "Unknown Exercise");
+                            return <li key={j}>• {exName}</li>;
+                         });
+                      })()}
                     </ul>
                     {(day.cooldown || day.stretches) && <div className="text-xs text-[#00cba8] mt-2"><i className="fa-solid fa-wind mr-1"></i> {Array.isArray(day.cooldown || day.stretches) ? (day.cooldown || day.stretches).join(', ') : (day.cooldown || day.stretches)}</div>}
                   </div>
@@ -436,11 +443,12 @@
                       mealDetails = m.details || m.description || m.food || m.options || m.items || m.ingredients || m;
                     }
                     
-                    if (mealName.toLowerCase().includes('weekly meal') || mealName.toLowerCase().includes('structure')) return null;
+                    const mealNameStr = String(mealName);
+                    if (mealNameStr.toLowerCase().includes('weekly meal') || mealNameStr.toLowerCase().includes('structure')) return null;
 
                     return (
                       <div key={i} className="border-b border-white/5 pb-5 mb-5 last:border-0 last:pb-0 last:mb-0">
-                        <div className="text-lg font-black text-[#ffc940] capitalize mb-3">{mealName.replace(/([A-Z])/g, ' $1').trim()}</div>
+                        <div className="text-lg font-black text-[#ffc940] capitalize mb-3">{mealNameStr.replace(/([A-Z])/g, ' $1').trim()}</div>
                         {renderMealNode(mealDetails)}
                       </div>
                     )
@@ -457,8 +465,17 @@
       const [customFood, setCustomFood] = useState("");
       const [selectedAiFood, setSelectedAiFood] = useState("");
       const [isCustom, setIsCustom] = useState(false);
-      const [loggedFoods, setLoggedFoods] = useState(appData?.dailyLog?.diet_json?.loggedFoods || []);
+      const [loggedFoods, setLoggedFoods] = useState([]);
       const [saving, setSaving] = useState(false);
+      const [hasSynced, setHasSynced] = useState(false);
+
+      // Safe state synchronization that won't overwrite ongoing edits
+      useEffect(() => {
+        if (appData?.dailyLog?.diet_json?.loggedFoods && !hasSynced) {
+          setLoggedFoods(appData.dailyLog.diet_json.loggedFoods);
+          setHasSynced(true);
+        }
+      }, [appData, hasSynced]);
 
       const planData = getPlanData(appData);
       
@@ -467,45 +484,61 @@
       const carbs = planData?.macros?.carbs || planData?.nutrition?.carbs || "N/A";
       const fats = planData?.macros?.fats || planData?.nutrition?.fats || "N/A";
       
-      // Aggressive recursive search to populate dropdown options perfectly
+      // CODEX FIX: Robust recursive search to properly extract food options
       const aiFoodOptions = useMemo(() => {
         if (!planData) return [];
         const opts = new Set();
-        
-        const extractStrings = (node) => {
-          if (!node) return;
-          if (typeof node === 'string') {
-            const trimmed = node.trim();
-            if ((trimmed.startsWith('[') && trimmed.endsWith(']')) || (trimmed.startsWith('{') && trimmed.endsWith('}'))) {
-              try { extractStrings(JSON.parse(trimmed)); return; } catch(e) {}
-            }
-            if (trimmed.length > 5 && trimmed.length < 150 && !trimmed.toLowerCase().includes('weekly meal structure')) {
-              opts.add(trimmed);
-            }
+
+        const addOption = (value) => {
+          if (typeof value !== 'string') return;
+          const cleaned = value.replace(/\s+/g, ' ').trim();
+          if (
+            cleaned.length < 3 ||
+            cleaned.length > 140 ||
+            cleaned.toLowerCase().includes('weekly meal structure')
+          ) {
             return;
           }
+          opts.add(cleaned);
+        };
+
+        const extractStrings = (node) => {
+          if (node == null) return;
+
+          if (typeof node === 'string') {
+            let str = node.trim();
+            if (str.toLowerCase().startsWith('options:')) str = str.slice(8).trim();
+
+            if (
+              (str.startsWith('[') && str.endsWith(']')) ||
+              (str.startsWith('{') && str.endsWith('}'))
+            ) {
+              try {
+                extractStrings(JSON.parse(str));
+                return;
+              } catch {}
+            }
+
+            addOption(str);
+            return;
+          }
+
           if (Array.isArray(node)) {
             node.forEach(extractStrings);
             return;
           }
+
           if (typeof node === 'object') {
-            if (node.label && typeof node.label === 'string') opts.add(node.label);
-            if (node.food && typeof node.food === 'string') opts.add(node.food);
-            if (node.option && typeof node.option === 'string') opts.add(node.option);
-            
+            ['label', 'food', 'option', 'title', 'name'].forEach((key) => addOption(node[key]));
             Object.entries(node).forEach(([k, v]) => {
-              if (k.toLowerCase().includes('weekly meal')) return; 
-              extractStrings(v);
+              if (!k.toLowerCase().includes('weekly meal')) extractStrings(v);
             });
           }
         };
 
-        const source = planData.nutrition ? { ...planData, ...planData.nutrition } : planData;
-        ['meals', 'mealPlan', 'diet', 'dietPlan', 'familyMeals', 'sharedMeals'].forEach(k => {
-          if (source[k]) extractStrings(source[k]);
-        });
+        extractStrings(planData.nutrition ? { ...planData, ...planData.nutrition } : planData);
 
-        return Array.from(opts).filter(Boolean);
+        return Array.from(opts);
       }, [planData]);
 
       const handleAddFood = (e) => {
@@ -560,24 +593,28 @@
           <div className="bg-[#1a1919] border border-[#6bff8f]/20 rounded-3xl p-6 space-y-4">
             <h3 className="font-bold text-white mb-2"><i className="fa-solid fa-plus text-[#6bff8f] mr-2"></i> Track Your Food</h3>
             <form onSubmit={handleAddFood} className="flex flex-col gap-3">
-              <select 
-                value={isCustom ? "custom" : selectedAiFood}
+              {/* CODEX FIX: Safe controlled select handling */}
+              <select
+                value={isCustom ? 'custom' : selectedAiFood}
                 onChange={(e) => {
-                  if (e.target.value === 'custom') {
+                  const value = e.target.value;
+                  if (value === 'custom') {
                     setIsCustom(true);
-                    setSelectedAiFood("");
-                  } else {
-                    setIsCustom(false);
-                    setSelectedAiFood(e.target.value);
+                    setSelectedAiFood('');
+                    return;
                   }
+                  setIsCustom(false);
+                  setSelectedAiFood(value);
                 }}
                 className="bg-[#262626] border-white/10 text-white text-sm cursor-pointer"
               >
-                <option value="" disabled>-- Select Meal --</option>
-                {aiFoodOptions.map((opt, i) => (
-                  <option key={i} value={opt}>{opt.length > 60 ? opt.substring(0, 60) + '...' : opt}</option>
+                <option value="">Select a meal</option>
+                {aiFoodOptions.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt.length > 60 ? `${opt.slice(0, 60)}...` : opt}
+                  </option>
                 ))}
-                <option value="custom">+ Custom Food Entry...</option>
+                <option value="custom">Custom food entry</option>
               </select>
 
               {isCustom && (
@@ -630,7 +667,10 @@
       }
       
       const currentDay = days[selectedDayIdx] || null;
-      const exercisesRaw = currentDay?.exercises || currentDay?.workout || currentDay?.movements || [];
+      
+      // CODEX FIX: Safe workout extraction for non-arrays
+      const rawExercises = currentDay?.exercises || currentDay?.workout || currentDay?.movements;
+      const exercisesRaw = Array.isArray(rawExercises) ? rawExercises : (rawExercises ? [rawExercises] : []);
 
       const todayWorkout = exercisesRaw.map((ex, i) => {
         const isObj = typeof ex === 'object' && ex !== null;
@@ -931,6 +971,8 @@
 
       if (!details) return <div className="text-center p-10"><i className="fa-solid fa-spinner fa-spin text-3xl text-[#6bff8f]"></i></div>;
 
+      const noLogs = (!details.daily_logs || details.daily_logs.length === 0) && (!details.checkins || details.checkins.length === 0);
+
       return (
         <div className="space-y-6">
           <button onClick={onBack} className="text-xs text-[#7a9abf] hover:text-white flex items-center gap-2 mb-4"><i className="fa-solid fa-arrow-left"></i> Back</button>
@@ -987,7 +1029,7 @@
               <p className="text-sm text-gray-400 mb-6">View raw diet, workout, and check-in entries submitted by the client.</p>
               
               <div className="bg-[#0b1628] border border-[#1a2e48] p-4 rounded-xl max-h-[500px] overflow-auto">
-                {(!details.daily_logs && !details.checkins) ? (
+                {noLogs ? (
                   <p className="text-xs text-gray-500 text-center py-4">No activity logged yet.</p>
                 ) : (
                   <pre className="text-xs font-mono text-gray-300 whitespace-pre-wrap">
