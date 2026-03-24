@@ -285,6 +285,7 @@
       
       const seen = new Set();
       meals = extracted.filter(m => {
+          if (m.name && typeof m.name === 'string' && m.name.toLowerCase().includes('weekly meal structure')) return false;
           const str = JSON.stringify(m);
           if (seen.has(str)) return false;
           seen.add(str);
@@ -302,6 +303,7 @@
         }
         if (node === null || node === undefined) return null;
         if (typeof node === 'string' || typeof node === 'number') {
+          if (String(node).toLowerCase().includes('weekly meal structure')) return null;
           return <div className="text-sm text-gray-300 leading-relaxed">{node}</div>;
         }
         if (Array.isArray(node)) {
@@ -318,6 +320,8 @@
         if (typeof node === 'object') {
           if (node.label || node.food || node.name || node.option || node.title) {
             const title = node.label || node.food || node.name || node.option || node.title;
+            if (typeof title === 'string' && title.toLowerCase().includes('weekly meal structure')) return null;
+            
             const macros = [
                node.calories && `${node.calories} kcal`,
                node.protein && `${node.protein}g Pro`,
@@ -331,6 +335,7 @@
                 {macros && <div className="text-[10px] text-[#00cba8] font-mono uppercase tracking-widest font-bold mt-2">{macros}</div>}
                 {Object.entries(node).map(([k, v], idx) => {
                    if (['label', 'food', 'name', 'option', 'title', 'calories', 'protein', 'carbs', 'fat', 'fats'].includes(k)) return null;
+                   if (k.toLowerCase().includes('weekly meal')) return null;
                    return (
                      <div key={idx} className="mt-2 pt-2 border-t border-white/5">
                        <span className="text-[10px] text-[#ffc940] font-bold uppercase tracking-widest">{k.replace(/([A-Z])/g, ' $1').trim()}:</span> 
@@ -345,6 +350,8 @@
             <div className="space-y-2 mt-2">
               {Object.entries(node).map(([k, v], idx) => {
                 if (k === 'meal' || k === 'name' || k === 'type') return null;
+                if (k.toLowerCase().includes('weekly meal')) return null;
+                
                 if (k.toLowerCase() === 'options' && (Array.isArray(v) || (typeof v === 'string' && v.trim().startsWith('[')))) {
                    return <div key={idx}>{renderMealNode(v)}</div>;
                 }
@@ -360,6 +367,9 @@
         }
         return null;
       };
+
+      const calories = plan?.calorieTarget || plan?.nutrition?.calories || plan?.calories || "N/A";
+      const protein = plan?.macros?.protein || plan?.nutrition?.protein || "N/A";
 
       return (
         <div className="p-5 space-y-6">
@@ -426,6 +436,8 @@
                       mealDetails = m.details || m.description || m.food || m.options || m.items || m.ingredients || m;
                     }
                     
+                    if (mealName.toLowerCase().includes('weekly meal') || mealName.toLowerCase().includes('structure')) return null;
+
                     return (
                       <div key={i} className="border-b border-white/5 pb-5 mb-5 last:border-0 last:pb-0 last:mb-0">
                         <div className="text-lg font-black text-[#ffc940] capitalize mb-3">{mealName.replace(/([A-Z])/g, ' $1').trim()}</div>
@@ -455,7 +467,7 @@
       const carbs = planData?.macros?.carbs || planData?.nutrition?.carbs || "N/A";
       const fats = planData?.macros?.fats || planData?.nutrition?.fats || "N/A";
       
-      // Extract specific food strings from the AI plan to populate the dropdown
+      // Aggressive recursive search to populate dropdown options perfectly
       const aiFoodOptions = useMemo(() => {
         if (!planData) return [];
         const opts = new Set();
@@ -463,20 +475,27 @@
         const extractStrings = (node) => {
           if (!node) return;
           if (typeof node === 'string') {
-            try {
-              const parsed = JSON.parse(node);
-              extractStrings(parsed);
-            } catch (e) {
-              if (node.length > 5 && node.length < 150 && !node.includes('Weekly Meal Structure')) opts.add(node);
+            const trimmed = node.trim();
+            if ((trimmed.startsWith('[') && trimmed.endsWith(']')) || (trimmed.startsWith('{') && trimmed.endsWith('}'))) {
+              try { extractStrings(JSON.parse(trimmed)); return; } catch(e) {}
             }
-          } else if (Array.isArray(node)) {
+            if (trimmed.length > 5 && trimmed.length < 150 && !trimmed.toLowerCase().includes('weekly meal structure')) {
+              opts.add(trimmed);
+            }
+            return;
+          }
+          if (Array.isArray(node)) {
             node.forEach(extractStrings);
-          } else if (typeof node === 'object') {
-            if (node.label) opts.add(node.label);
-            if (node.food) opts.add(node.food);
-            if (node.name && !['Breakfast', 'Lunch', 'Dinner', 'Snack'].includes(node.name)) opts.add(node.name);
-            Object.values(node).forEach(v => {
-              if (typeof v === 'object' || Array.isArray(v) || typeof v === 'string') extractStrings(v);
+            return;
+          }
+          if (typeof node === 'object') {
+            if (node.label && typeof node.label === 'string') opts.add(node.label);
+            if (node.food && typeof node.food === 'string') opts.add(node.food);
+            if (node.option && typeof node.option === 'string') opts.add(node.option);
+            
+            Object.entries(node).forEach(([k, v]) => {
+              if (k.toLowerCase().includes('weekly meal')) return; 
+              extractStrings(v);
             });
           }
         };
@@ -579,7 +598,7 @@
             {loggedFoods.map((f, i) => (
               <div key={i} className="bg-[#1a1919] border-l-4 border-l-[#6bff8f] rounded-xl p-4 flex justify-between items-center">
                 <span className="text-white text-sm font-medium">{f.name}</span>
-                <button onClick={() => setLoggedFoods(loggedFoods.filter((_, idx) => idx !== i))} className="text-red-400 p-2 hover:bg-red-500/10 rounded-lg transition-colors"><i className="fa-solid fa-trash text-xs"></i></button>
+                <button type="button" onClick={() => setLoggedFoods(loggedFoods.filter((_, idx) => idx !== i))} className="text-red-400 p-2 hover:bg-red-500/10 rounded-lg transition-colors"><i className="fa-solid fa-trash text-xs"></i></button>
               </div>
             ))}
             {loggedFoods.length === 0 && <p className="text-xs text-gray-500 pl-2">Nothing tracked yet.</p>}
