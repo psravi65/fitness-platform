@@ -100,6 +100,24 @@
         } catch (err) { setFlash({ err: err.message }); }
       };
 
+      const handleBootstrap = async (e) => {
+        e.preventDefault();
+        try {
+          await api('/api/bootstrap-admin', {
+            method: 'POST',
+            body: JSON.stringify({
+              username: e.target.username.value,
+              password: e.target.password.value,
+              superadmin: e.target.superadmin.checked
+            })
+          });
+          setFlash({ msg: "Account created. You can log in now." });
+          setIsBootstrap(false);
+        } catch (err) {
+          setFlash({ err: err.message });
+        }
+      };
+
       return (
         <div className="min-h-screen flex flex-col items-center justify-center p-6">
           <div className="w-full max-w-md">
@@ -117,6 +135,21 @@
                 <input type="password" name="password" placeholder="Password" required className="bg-[#262626] border-[#6bff8f]/20 text-white" />
                 <button type="submit" className="action-btn w-full mt-2">Unlock My Plan <i className="fa-solid fa-arrow-right ml-2"></i></button>
               </form>
+
+              {isBootstrap && (
+                <div className="mt-8 pt-8 border-t border-gray-800">
+                  <h3 className="text-lg font-bold text-white mb-2">First Time Setup</h3>
+                  <p className="text-xs text-gray-400 mb-6">Create the app owner account.</p>
+                  <form onSubmit={handleBootstrap} className="flex flex-col gap-4">
+                    <input name="username" placeholder="Admin Username" required className="bg-[#262626] text-white text-sm py-2 px-3" />
+                    <input type="password" name="password" placeholder="Secure Password" required className="bg-[#262626] text-white text-sm py-2 px-3" />
+                    <label className="flex items-center gap-3 text-sm text-gray-300">
+                      <input type="checkbox" name="superadmin" className="w-4 h-4" /> I am the app owner
+                    </label>
+                    <button type="submit" className="ghost-btn w-full text-sm">Create Platform Account</button>
+                  </form>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -182,6 +215,52 @@
       );
     };
 
+    // --- RESTORED: Client Plan View ---
+    const ClientPlanView = ({ appData }) => {
+      const plan = appData?.plan?.effectivePlan;
+      if (!plan) {
+        return (
+          <div className="p-5 text-center mt-20">
+            <i className="fa-solid fa-clipboard-list text-gray-700 text-5xl mb-4"></i>
+            <h3 className="text-lg font-bold text-white mb-2">Plan Pending</h3>
+            <p className="text-sm text-gray-400">Your coach is currently building your personalized plan. Check back soon!</p>
+          </div>
+        );
+      }
+      return (
+        <div className="p-5 space-y-6">
+          <div><h2 className="text-2xl font-black text-white">Your Plan</h2><p className="text-sm text-gray-400 mt-1">Review your custom protocols.</p></div>
+          <div className="bg-[#1a1919] border border-[#6bff8f]/20 rounded-3xl p-6">
+            <h3 className="text-[#6bff8f] text-xs font-bold uppercase tracking-widest mb-3">Profile Summary</h3>
+            <p className="text-sm text-gray-300 leading-relaxed">{plan.profileSummary || "No summary provided."}</p>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="bg-[#1a1919] border border-white/5 rounded-2xl p-4 text-center">
+              <div className="text-2xl font-black text-[#ffc940]">{plan.calorieTarget || "N/A"}</div>
+              <div className="text-[10px] text-gray-400 uppercase tracking-widest mt-1">Calories</div>
+            </div>
+            <div className="bg-[#1a1919] border border-white/5 rounded-2xl p-4 text-center">
+              <div className="text-2xl font-black text-[#00cba8]">{plan.macros?.protein || "N/A"}</div>
+              <div className="text-[10px] text-gray-400 uppercase tracking-widest mt-1">Protein</div>
+            </div>
+          </div>
+          <div className="bg-[#1a1919] border border-white/5 rounded-3xl p-6">
+            <h3 className="text-white font-bold mb-4 flex items-center gap-2"><i className="fa-solid fa-dumbbell text-[#6bff8f]"></i> Weekly Workout Split</h3>
+            <div className="space-y-4">
+              {(plan.workoutSplit || []).map((day, i) => (
+                <div key={i} className="border-b border-white/5 pb-4 last:border-0 last:pb-0">
+                  <div className="text-sm font-bold text-[#6bff8f] mb-2">{day.day}</div>
+                  <ul className="text-sm text-gray-300 space-y-1">
+                    {(day.exercises || []).map((ex, j) => <li key={j}>• {ex}</li>)}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    };
+
     const ClientDietView = ({ appData, setFlash }) => {
       const [customFood, setCustomFood] = useState("");
       const [loggedFoods, setLoggedFoods] = useState(appData?.dailyLog?.diet_json?.loggedFoods || []);
@@ -233,9 +312,15 @@
       const [completed, setCompleted] = useState(false);
       const [saving, setSaving] = useState(false);
       
-      const planWorkout = appData?.plan?.effectivePlan?.workoutSplit?.[0]?.exercises?.map((name, i) => ({
-         id: i, name, type: "strength", targetSets: 3, targetReps: "10" 
-      })) || [{ id: 1, name: "Barbell Squats", type: "strength", targetSets: 3, targetReps: "8-10" }];
+      // FIX: Smart regex detection for Cardio exercises to hide the Set/Rep fields
+      const planWorkout = appData?.plan?.effectivePlan?.workoutSplit?.[0]?.exercises?.map((name, i) => {
+        const isCardio = /run|treadmill|sprint|bike|cycle|row|cardio|walk|elliptical|stair/i.test(name);
+        return {
+           id: i, name, type: isCardio ? "cardio" : "strength", targetSets: 3, targetReps: isCardio ? "N/A" : "10" 
+        };
+      });
+      
+      const todayWorkout = planWorkout || [{ id: 1, name: "Barbell Squats", type: "strength", targetSets: 3, targetReps: "8-10" }];
 
       const handleSaveLog = async (e) => {
         e.preventDefault();
@@ -255,23 +340,45 @@
         <form onSubmit={handleSaveLog} className="p-5 space-y-6">
           <div><h2 className="text-2xl font-black text-white">Today's Workout</h2></div>
           <div className="space-y-4">
-            {planWorkout.map((ex) => (
-              <div key={ex.id} className="bg-[#1a1919] border border-white/5 rounded-3xl overflow-hidden">
-                <div className="bg-[#262626]/50 p-4 border-b border-white/5 flex justify-between items-center">
-                  <h3 className="font-bold text-white text-sm">{ex.name}</h3>
+            {todayWorkout.map((ex) => {
+              const isCardio = ex.type === 'cardio';
+              return (
+                <div key={ex.id} className="bg-[#1a1919] border border-white/5 rounded-3xl overflow-hidden">
+                  <div className="bg-[#262626]/50 p-4 border-b border-white/5 flex justify-between items-center">
+                    <h3 className="font-bold text-white text-sm">{ex.name}</h3>
+                    <span className="text-[10px] uppercase font-bold text-[#6bff8f] bg-[#6bff8f]/10 px-2 py-1 rounded">
+                      {isCardio ? 'Cardio' : 'Strength'}
+                    </span>
+                  </div>
+                  
+                  <div className="p-4">
+                    {isCardio ? (
+                      <div className="flex gap-4 items-end">
+                        <div className="flex-1">
+                          <label className="text-[10px] text-gray-400 font-bold uppercase block mb-1">Duration (Minutes)</label>
+                          <input type="number" name={`ex_${ex.id}_duration`} placeholder="e.g. 15" className="bg-[#0b1628] text-white text-sm border-white/10" />
+                        </div>
+                        <div className="flex-1">
+                          <label className="text-[10px] text-gray-400 font-bold uppercase block mb-1">Notes</label>
+                          <input type="text" name={`ex_${ex.id}_notes`} placeholder="Intensity/Speed" className="bg-[#0b1628] text-white text-sm border-white/10" />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="flex justify-between text-xs text-gray-400 mb-2 px-1"><span>Target: {ex.targetSets} sets × {ex.targetReps}</span></div>
+                        {Array.from({ length: ex.targetSets }).map((_, i) => (
+                          <div key={i} className="flex gap-3 items-center">
+                            <span className="text-gray-500 font-mono text-xs w-10">Set {i+1}</span>
+                            <input type="number" name={`ex_${ex.id}_set_${i}_weight`} placeholder="Weight" className="bg-[#0b1628] text-white text-sm border-white/10 pl-2 flex-1" />
+                            <input type="number" name={`ex_${ex.id}_set_${i}_reps`} placeholder="Reps" className="bg-[#0b1628] text-white text-sm border-white/10 pl-2 flex-1" />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="p-4 space-y-3">
-                  <div className="flex justify-between text-xs text-gray-400 mb-2 px-1"><span>Target: {ex.targetSets} sets × {ex.targetReps}</span></div>
-                  {Array.from({ length: ex.targetSets }).map((_, i) => (
-                    <div key={i} className="flex gap-3 items-center">
-                      <span className="text-gray-500 font-mono text-xs w-10">Set {i+1}</span>
-                      <input type="number" name={`ex_${ex.id}_set_${i}_weight`} placeholder="Weight" className="bg-[#0b1628] text-white text-sm border-white/10 pl-2 flex-1" />
-                      <input type="number" name={`ex_${ex.id}_set_${i}_reps`} placeholder="Reps" className="bg-[#0b1628] text-white text-sm border-white/10 pl-2 flex-1" />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
           <div className="bg-[#1a1919] border border-white/5 rounded-3xl p-6">
             <label className="flex items-center gap-4 cursor-pointer">
@@ -284,7 +391,6 @@
       );
     };
 
-    // --- RESTORED: Client Weekly Check-in View ---
     const ClientCheckinView = ({ setFlash }) => {
       const [saving, setSaving] = useState(false);
 
@@ -332,6 +438,9 @@
 
       useEffect(() => { api('/api/app/bootstrap').then(res => setAppData(res)).catch(() => {}); }, []);
 
+      // FIX: Dynamically show Intake if no plan is published, otherwise show Plan
+      const hasPlan = !!appData?.plan?.effectivePlan;
+
       return (
         <div className="max-w-md mx-auto min-h-screen bg-[#0e0e0e] pb-24">
           <header className="sticky top-0 z-40 bg-[#0d0d0d]/90 backdrop-blur-md border-b border-[#6bff8f]/10 p-4 flex justify-between items-center">
@@ -345,6 +454,7 @@
           <main>
             {activeTab === 'home' && <ClientDashboard appData={appData} />}
             {activeTab === 'intake' && <ClientIntakeView appData={appData} setFlash={setFlash} />}
+            {activeTab === 'plan' && <ClientPlanView appData={appData} />}
             {activeTab === 'diet' && <ClientDietView appData={appData} setFlash={setFlash} />}
             {activeTab === 'workout' && <ClientWorkoutView appData={appData} setFlash={setFlash} />}
             {activeTab === 'checkin' && <ClientCheckinView setFlash={setFlash} />}
@@ -353,7 +463,7 @@
           <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-[#131313]/90 backdrop-blur-xl border-t border-white/5 rounded-t-[20px] p-2 flex justify-between z-50">
             {[
               { id: 'home', icon: 'fa-bolt', label: 'Home' },
-              { id: 'intake', icon: 'fa-clipboard-list', label: 'Intake' },
+              (hasPlan ? { id: 'plan', icon: 'fa-calendar-day', label: 'Plan' } : { id: 'intake', icon: 'fa-clipboard-list', label: 'Intake' }),
               { id: 'diet', icon: 'fa-utensils', label: 'Diet' },
               { id: 'workout', icon: 'fa-dumbbell', label: 'Workout' },
               { id: 'checkin', icon: 'fa-camera', label: 'Check-in' }
@@ -422,7 +532,6 @@
       );
     };
 
-    // --- RESTORED: Admin Client Detail with Tabs for Plan & Logs ---
     const AdminClientDetail = ({ client, onBack, setFlash }) => {
       const [details, setDetails] = useState(null);
       const [generatingPlan, setGeneratingPlan] = useState(false);
@@ -506,7 +615,6 @@
               <p className="text-sm text-gray-400 mb-6">View raw diet, workout, and check-in entries submitted by the client.</p>
               
               <div className="bg-[#0b1628] border border-[#1a2e48] p-4 rounded-xl max-h-[500px] overflow-auto">
-                {/* Note: In a fully wired app, we would map over details.daily_logs and details.checkins here. */}
                 {(!details.daily_logs && !details.checkins) ? (
                   <p className="text-xs text-gray-500 text-center py-4">No activity logged yet.</p>
                 ) : (
@@ -574,7 +682,6 @@
         api('/api/me').then(res => setMe(res.user)).catch(() => setMe(null));
       }, []);
 
-      // --- RESTORED: Real Password Reset Logic ---
       const handlePasswordReset = async (e) => {
         e.preventDefault();
         try {
