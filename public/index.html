@@ -384,6 +384,7 @@
             <p className="text-sm text-gray-400 mt-1">Review your custom protocols.</p>
           </div>
 
+          {/* Toggle Buttons */}
           <div className="flex gap-2 p-1 bg-[#1a1919] rounded-xl border border-white/5">
             <button 
               type="button"
@@ -489,6 +490,7 @@
       const carbs = planData?.macros?.carbs || planData?.nutrition?.carbs || "N/A";
       const fats = planData?.macros?.fats || planData?.nutrition?.fats || "N/A";
       
+      // NEW: Highly targeted Dropdown Scanner - Ignores everything except actual food arrays/objects
       const aiFoodOptions = useMemo(() => {
         if (!planData) return [];
         const opts = new Set();
@@ -500,6 +502,7 @@
           if (cleaned.length < 4 || cleaned.length > 150) return;
           
           const lower = cleaned.toLowerCase();
+          // Explicitly block all the non-food junk you saw in the screenshot
           if (
             lower.includes('weekly meal') || 
             lower.includes('structure') ||
@@ -526,6 +529,7 @@
               try { dig(JSON.parse(str), context); return; } catch {}
             }
             
+            // Only capture raw strings if we are explicitly deep inside a meal context
             if (['breakfast', 'lunch', 'dinner', 'snack', 'meals', 'options'].includes(context)) {
                addOption(str);
             }
@@ -538,20 +542,26 @@
           }
 
           if (typeof node === 'object') {
+            // If we found a structured food object, grab its label
             if (node.label || node.food || node.option) {
                 addOption(node.label || node.food || node.option);
             } else if (node.name && (node.calories || node.protein || node.carbs || node.fat || node.fats)) {
+                // If it has macros attached, it's definitely a food
                 addOption(node.name);
             }
 
             Object.entries(node).forEach(([k, v]) => {
               const kLower = k.toLowerCase();
+              
+              // NEVER dig into workout plans, user profiles, or intake forms!
               if (['client_profile', 'intake', 'workout', 'workouts', 'workoutsplit', 'workout_plan', 'routine', 'metadata', 'system', 'goal'].includes(kLower)) return;
+              
               dig(v, kLower);
             });
           }
         };
 
+        // Focus purely on the nutrition node to avoid scanning random data
         const source = planData.nutrition || planData.diet || planData.meals || planData;
         dig(source, 'root');
 
