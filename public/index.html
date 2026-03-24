@@ -260,23 +260,22 @@
 
       const planData = getPlanData(appData);
       
+      const calories = planData?.calorieTarget || planData?.nutrition?.calories || planData?.calories || "N/A";
+      const protein = planData?.macros?.protein || planData?.nutrition?.protein || "N/A";
+      const carbs = planData?.macros?.carbs || planData?.nutrition?.carbs || "N/A";
+      const fats = planData?.macros?.fats || planData?.nutrition?.fats || "N/A";
+      
       // NEW: Bulletproof Diet Data Parser
       let meals = [];
       if (planData) {
-        // Try to find the diet information wherever the AI put it
-        const raw = planData.meals || planData.mealPlan || planData.diet || planData.dietPlan || planData.nutrition?.meals || planData.nutrition?.mealPlan || planData.nutrition?.diet;
+        const raw = planData.meals || planData.mealPlan || planData.diet || planData.dietPlan || planData.nutrition?.meals || planData.nutrition?.mealPlan || planData.nutrition?.diet || planData.nutrition?.guidelines;
         
         if (Array.isArray(raw)) {
           meals = raw;
         } else if (typeof raw === 'object' && raw !== null) {
           meals = Object.entries(raw).map(([k, v]) => ({ name: k, details: v }));
         } else if (typeof raw === 'string') {
-          meals = [{ name: "Diet Guidelines", details: raw }];
-        } else if (planData.nutrition && typeof planData.nutrition === 'object') {
-          // If all else fails, iterate the nutrition object itself
-          meals = Object.entries(planData.nutrition)
-            .filter(([k]) => !['calories', 'protein', 'carbs', 'fats', 'macros'].includes(k.toLowerCase()))
-            .map(([k, v]) => ({ name: k, details: v }));
+          meals = [{ name: "Guidelines", details: raw }];
         }
       }
 
@@ -301,10 +300,33 @@
 
       return (
         <div className="p-5 space-y-6">
-          <div><h2 className="text-2xl font-black text-white">Diet Log</h2></div>
+          <div>
+            <h2 className="text-2xl font-black text-white">Diet Log</h2>
+            <p className="text-sm text-gray-400 mt-1">Track your macros and meals.</p>
+          </div>
+
+          {/* NEW: Explicit Macro Block inside Diet View */}
+          <div className="grid grid-cols-4 gap-3">
+            <div className="bg-[#1a1919] border border-white/5 rounded-2xl p-3 text-center">
+              <div className="text-sm font-black text-[#ffc940]">{calories}</div>
+              <div className="text-[9px] text-gray-400 uppercase mt-1 tracking-widest">Cals</div>
+            </div>
+            <div className="bg-[#1a1919] border border-white/5 rounded-2xl p-3 text-center">
+              <div className="text-sm font-black text-[#00cba8]">{protein}</div>
+              <div className="text-[9px] text-gray-400 uppercase mt-1 tracking-widest">Pro</div>
+            </div>
+            <div className="bg-[#1a1919] border border-white/5 rounded-2xl p-3 text-center">
+              <div className="text-sm font-black text-[#6ba4ff]">{carbs}</div>
+              <div className="text-[9px] text-gray-400 uppercase mt-1 tracking-widest">Carb</div>
+            </div>
+            <div className="bg-[#1a1919] border border-white/5 rounded-2xl p-3 text-center">
+              <div className="text-sm font-black text-[#ff6b6b]">{fats}</div>
+              <div className="text-[9px] text-gray-400 uppercase mt-1 tracking-widest">Fat</div>
+            </div>
+          </div>
           
           {/* AI Diet Plan Rendered Here */}
-          {meals && meals.length > 0 && (
+          {meals && meals.length > 0 ? (
             <div className="bg-[#1a1919] border border-[#ffc940]/20 rounded-3xl p-6 space-y-4">
               <h3 className="font-bold text-white flex items-center gap-2"><i className="fa-solid fa-fire text-[#ffc940]"></i> Your AI Diet Plan</h3>
               <div className="space-y-3">
@@ -313,11 +335,20 @@
                   let mealDetails = m;
                   
                   if (typeof m === 'object' && m !== null) {
-                    mealName = m.meal || m.name || m.type || m.time || `Meal ${i+1}`;
-                    mealDetails = m.details || m.description || m.food || m.items || m;
+                    mealName = m.meal || m.name || m.type || m.time || m.title || `Meal ${i+1}`;
+                    mealDetails = m.details || m.description || m.food || m.items || m.ingredients || m;
                   }
                   
-                  const displayDetails = typeof mealDetails === 'object' ? JSON.stringify(mealDetails) : mealDetails;
+                  let displayDetails = "";
+                  if (typeof mealDetails === 'string') {
+                      displayDetails = mealDetails;
+                  } else if (Array.isArray(mealDetails)) {
+                      displayDetails = mealDetails.join(', ');
+                  } else if (typeof mealDetails === 'object' && mealDetails !== null) {
+                      displayDetails = Object.entries(mealDetails)
+                          .filter(([k, v]) => v !== mealName)
+                          .map(([k, v]) => `${k}: ${v}`).join(' | ');
+                  }
                   
                   return (
                     <div key={i} className="border-b border-white/5 pb-3 last:border-0 last:pb-0">
@@ -327,6 +358,13 @@
                   )
                 })}
               </div>
+            </div>
+          ) : planData && (
+             <div className="bg-[#1a1919] border border-[#ffc940]/20 rounded-3xl p-6 space-y-4">
+              <h3 className="font-bold text-white flex items-center gap-2"><i className="fa-solid fa-fire text-[#ffc940]"></i> Diet Guidelines</h3>
+              <p className="text-sm text-gray-300 leading-relaxed">
+                 Hit your daily macro targets above! Your AI coach did not prescribe specific locked-in meals for this cycle. Track your foods below to ensure you meet your nutritional goals.
+              </p>
             </div>
           )}
 
