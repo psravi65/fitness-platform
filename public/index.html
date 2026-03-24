@@ -112,6 +112,24 @@
         } catch (err) { setFlash({ err: err.message }); }
       };
 
+      const handleBootstrap = async (e) => {
+        e.preventDefault();
+        try {
+          await api('/api/bootstrap-admin', {
+            method: 'POST',
+            body: JSON.stringify({
+              username: e.target.username.value,
+              password: e.target.password.value,
+              superadmin: e.target.superadmin.checked
+            })
+          });
+          setFlash({ msg: "Account created. You can log in now." });
+          setIsBootstrap(false);
+        } catch (err) {
+          setFlash({ err: err.message });
+        }
+      };
+
       return (
         <div className="min-h-screen flex flex-col items-center justify-center p-6">
           <div className="w-full max-w-md">
@@ -129,6 +147,21 @@
                 <input type="password" name="password" placeholder="Password" required className="bg-[#262626] border-[#6bff8f]/20 text-white" />
                 <button type="submit" className="action-btn w-full mt-2">Unlock My Plan <i className="fa-solid fa-arrow-right ml-2"></i></button>
               </form>
+
+              {isBootstrap && (
+                <div className="mt-8 pt-8 border-t border-gray-800">
+                  <h3 className="text-lg font-bold text-white mb-2">First Time Setup</h3>
+                  <p className="text-xs text-gray-400 mb-6">Create the app owner account.</p>
+                  <form onSubmit={handleBootstrap} className="flex flex-col gap-4">
+                    <input name="username" placeholder="Admin Username" required className="bg-[#262626] text-white text-sm py-2 px-3" />
+                    <input type="password" name="password" placeholder="Secure Password" required className="bg-[#262626] text-white text-sm py-2 px-3" />
+                    <label className="flex items-center gap-3 text-sm text-gray-300">
+                      <input type="checkbox" name="superadmin" className="w-4 h-4" /> I am the app owner
+                    </label>
+                    <button type="submit" className="ghost-btn w-full text-sm">Create Platform Account</button>
+                  </form>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -265,18 +298,39 @@
       const carbs = planData?.macros?.carbs || planData?.nutrition?.carbs || "N/A";
       const fats = planData?.macros?.fats || planData?.nutrition?.fats || "N/A";
       
-      // NEW: Bulletproof Diet Data Parser
+      // NEW ULTRA-BULLETPROOF PARSER: Searches the entire JSON for ANY key mentioning "meal", "diet", "family", "food", or "share"
       let meals = [];
       if (planData) {
-        const raw = planData.meals || planData.mealPlan || planData.diet || planData.dietPlan || planData.nutrition?.meals || planData.nutrition?.mealPlan || planData.nutrition?.diet || planData.nutrition?.guidelines;
+        const source = planData.nutrition ? { ...planData, ...planData.nutrition } : planData;
+        const dietKeys = ['meals', 'mealPlan', 'diet', 'dietPlan', 'guidelines', 'familyMeals', 'sharedMeals', 'householdMeals', 'householdPlan', 'familyPlan', 'sharedDiet', 'partnerPlan'];
         
-        if (Array.isArray(raw)) {
-          meals = raw;
-        } else if (typeof raw === 'object' && raw !== null) {
-          meals = Object.entries(raw).map(([k, v]) => ({ name: k, details: v }));
-        } else if (typeof raw === 'string') {
-          meals = [{ name: "Guidelines", details: raw }];
+        let extracted = [];
+        for (const key of Object.keys(source)) {
+            const kLower = key.toLowerCase();
+            // If the key explicitly matches, OR contains "meal", "diet", "food", or "family"
+            if (dietKeys.includes(key) || kLower.includes('meal') || kLower.includes('diet') || kLower.includes('food') || kLower.includes('family') || kLower.includes('share')) {
+                const val = source[key];
+                if (Array.isArray(val)) {
+                    // Extract Arrays
+                    extracted = [...extracted, ...val.map(item => typeof item === 'string' ? { name: key, details: item } : item)];
+                } else if (typeof val === 'object' && val !== null) {
+                    // Extract Objects (like {"Breakfast": "...", "Shared Dinner": "..."})
+                    extracted = [...extracted, ...Object.entries(val).map(([k, v]) => ({ name: k, details: v }))];
+                } else if (typeof val === 'string') {
+                    // Extract raw strings
+                    extracted.push({ name: key, details: val });
+                }
+            }
         }
+        
+        // Remove duplicates if the AI nested the same data twice
+        const seen = new Set();
+        meals = extracted.filter(m => {
+            const str = JSON.stringify(m);
+            if (seen.has(str)) return false;
+            seen.add(str);
+            return true;
+        });
       }
 
       const handleAddCustom = (e) => {
@@ -305,7 +359,6 @@
             <p className="text-sm text-gray-400 mt-1">Track your macros and meals.</p>
           </div>
 
-          {/* NEW: Explicit Macro Block inside Diet View */}
           <div className="grid grid-cols-4 gap-3">
             <div className="bg-[#1a1919] border border-white/5 rounded-2xl p-3 text-center">
               <div className="text-sm font-black text-[#ffc940]">{calories}</div>
@@ -325,7 +378,7 @@
             </div>
           </div>
           
-          {/* AI Diet Plan Rendered Here */}
+          {/* Dynamically Rendered AI Diet Plan */}
           {meals && meals.length > 0 ? (
             <div className="bg-[#1a1919] border border-[#ffc940]/20 rounded-3xl p-6 space-y-4">
               <h3 className="font-bold text-white flex items-center gap-2"><i className="fa-solid fa-fire text-[#ffc940]"></i> Your AI Diet Plan</h3>
@@ -343,16 +396,16 @@
                   if (typeof mealDetails === 'string') {
                       displayDetails = mealDetails;
                   } else if (Array.isArray(mealDetails)) {
-                      displayDetails = mealDetails.join(', ');
+                      displayDetails = mealDetails.map(item => typeof item === 'object' ? JSON.stringify(item) : item).join(', ');
                   } else if (typeof mealDetails === 'object' && mealDetails !== null) {
                       displayDetails = Object.entries(mealDetails)
                           .filter(([k, v]) => v !== mealName)
-                          .map(([k, v]) => `${k}: ${v}`).join(' | ');
+                          .map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(' | ');
                   }
                   
                   return (
                     <div key={i} className="border-b border-white/5 pb-3 last:border-0 last:pb-0">
-                      <div className="text-sm font-bold text-[#ffc940]">{mealName}</div>
+                      <div className="text-sm font-bold text-[#ffc940] capitalize">{mealName.replace(/([A-Z])/g, ' $1').trim()}</div>
                       <div className="text-xs text-gray-300 mt-1">{displayDetails}</div>
                     </div>
                   )
