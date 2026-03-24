@@ -30,7 +30,8 @@
       const text = await res.text();
       let json = {};
       try { json = text ? JSON.parse(text) : {}; } catch {}
-      if (!res.ok) throw new Error(json.error || "Request failed");
+      // Enhanced error logging to help debug backend missing routes (e.g. 404 Not Found)
+      if (!res.ok) throw new Error(json.error || `Request failed (${res.status}: ${res.statusText || 'Unknown'})`);
       return json;
     }
 
@@ -286,7 +287,8 @@
       const seen = new Set();
       meals = extracted.filter(m => {
           const nameStr = String(m.name || '').toLowerCase();
-          const detailStr = typeof m.details === 'string' ? m.details.toLowerCase() : JSON.stringify(m.details).toLowerCase();
+          // FIXED: Use defensive logic to prevent crashing on stringify
+          const detailStr = m.details ? (typeof m.details === 'string' ? m.details : JSON.stringify(m.details)).toLowerCase() : '';
           
           // Ultra-aggressive junk filter for nonsense AI sections
           if (nameStr.includes('structure') || nameStr.includes('guideline') || nameStr.includes('weekly meal')) return false;
@@ -419,7 +421,7 @@
                     <ul className="text-sm text-gray-300 space-y-1">
                       {(() => {
                          const rawExercises = day.exercises || day.workout || [];
-                         const exArray = Array.isArray(rawExercises) ? rawExercises : [rawExercises];
+                         const exArray = Array.isArray(rawExercises) ? rawExercises : (rawExercises ? [rawExercises] : []);
                          return exArray.map((ex, j) => {
                             const exName = typeof ex === 'string' ? ex : (ex?.name || ex?.exercise || "Unknown Exercise");
                             return <li key={j}>• {exName}</li>;
