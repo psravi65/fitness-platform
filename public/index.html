@@ -454,12 +454,13 @@
         setSaving(true);
         try {
           await onAddClient({
-            full_name: e.target.full_name.value,
-            username: e.target.username.value
+            fullName: e.target.full_name.value, // <-- FIX: Changed to camelCase!
+            username: e.target.username.value,
+            email: e.target.email.value
           });
           setShowModal(false);
         } catch (err) {
-          alert(err.message); // Fallback for quick error display
+          alert(err.message); 
         }
         setSaving(false);
       };
