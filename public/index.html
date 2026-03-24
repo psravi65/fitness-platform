@@ -56,6 +56,14 @@
       return new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
     };
 
+    // --- Helper: Robustly extract the first number from a string (e.g. "1800-2000 kcal" -> 1800) ---
+    const parseFirstNumber = (val) => {
+      if (!val) return 0;
+      const str = String(val).replace(/,/g, ''); // Remove commas
+      const match = str.match(/\d+/); // Find first sequence of digits
+      return match ? parseInt(match[0], 10) : 0;
+    };
+
     const GlobalStyles = () => (
       <style>{`
         :root {
@@ -185,8 +193,9 @@
       const { client, dailyLog } = appData || {};
       const planData = getPlanData(appData);
       
-      const targetCalories = parseInt(String(planData?.calorieTarget || planData?.nutrition?.calories || planData?.calories || '0').replace(/\D/g, '')) || 2000;
-      const targetProtein = parseInt(String(planData?.macros?.protein || planData?.nutrition?.protein || '0').replace(/\D/g, '')) || 150;
+      // FIXED: Use parseFirstNumber to handle ranges like "1800 - 2000" correctly
+      const targetCalories = parseFirstNumber(planData?.calorieTarget || planData?.nutrition?.calories || planData?.calories) || 2000;
+      const targetProtein = parseFirstNumber(planData?.macros?.protein || planData?.nutrition?.protein) || 150;
 
       // Dynamically calculate consumed amounts from the log
       const loggedFoods = dailyLog?.meals_json?.loggedFoods || dailyLog?.diet_json?.loggedFoods || [];
@@ -456,8 +465,8 @@
         return null;
       };
 
-      const calories = plan?.calorieTarget || plan?.nutrition?.calories || plan?.calories || "N/A";
-      const protein = plan?.macros?.protein || plan?.nutrition?.protein || "N/A";
+      const caloriesStr = plan?.calorieTarget || plan?.nutrition?.calories || plan?.calories || "N/A";
+      const proteinStr = plan?.macros?.protein || plan?.nutrition?.protein || "N/A";
 
       return (
         <div className="p-5 space-y-6">
