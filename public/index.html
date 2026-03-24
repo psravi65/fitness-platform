@@ -19,7 +19,7 @@
   <div id="root"></div>
 
   <script type="text/babel">
-    const { useState, useEffect } = React;
+    const { useState, useEffect, useMemo } = React;
 
     async function api(path, options = {}) {
       const res = await fetch(path, {
@@ -238,6 +238,7 @@
     };
 
     const ClientPlanView = ({ appData }) => {
+      const [planTab, setPlanTab] = useState('workout'); // 'workout' or 'diet'
       const plan = getPlanData(appData);
       
       if (!plan) {
@@ -250,10 +251,7 @@
         );
       }
 
-      const calories = plan?.calorieTarget || plan?.nutrition?.calories || plan?.calories || "N/A";
-      const protein = plan?.macros?.protein || plan?.nutrition?.protein || "N/A";
-      
-      // Robust Day Parsing: Handle both Array and Object formations safely
+      // --- Workout Extraction ---
       let daysRaw = plan?.workoutSplit || plan?.workout_plan || plan?.workouts || plan?.routine || [];
       let days = [];
       if (Array.isArray(daysRaw)) {
@@ -265,121 +263,47 @@
         }));
       }
 
-      return (
-        <div className="p-5 space-y-6">
-          <div><h2 className="text-2xl font-black text-white">Your Plan</h2><p className="text-sm text-gray-400 mt-1">Review your custom protocols.</p></div>
-          <div className="bg-[#1a1919] border border-[#6bff8f]/20 rounded-3xl p-6">
-            <h3 className="text-[#6bff8f] text-xs font-bold uppercase tracking-widest mb-3">Profile Summary</h3>
-            <p className="text-sm text-gray-300 leading-relaxed">{plan.profileSummary || plan.summary || "Your AI-generated plan is active."}</p>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="bg-[#1a1919] border border-white/5 rounded-2xl p-4 text-center">
-              <div className="text-2xl font-black text-[#ffc940]">{calories}</div>
-              <div className="text-[10px] text-gray-400 uppercase tracking-widest mt-1">Calories</div>
-            </div>
-            <div className="bg-[#1a1919] border border-white/5 rounded-2xl p-4 text-center">
-              <div className="text-2xl font-black text-[#00cba8]">{protein}</div>
-              <div className="text-[10px] text-gray-400 uppercase tracking-widest mt-1">Protein</div>
-            </div>
-          </div>
-          <div className="bg-[#1a1919] border border-white/5 rounded-3xl p-6">
-            <h3 className="text-white font-bold mb-4 flex items-center gap-2"><i className="fa-solid fa-dumbbell text-[#6bff8f]"></i> Weekly Workout Split</h3>
-            <div className="space-y-4">
-              {days.map((day, i) => (
-                <div key={i} className="border-b border-white/5 pb-4 last:border-0 last:pb-0">
-                  <div className="text-sm font-bold text-[#6bff8f] mb-2">{day.day || `Day ${i+1}`}</div>
-                  {day.warmup && <div className="text-xs text-[#ffc940] mb-2"><i className="fa-solid fa-fire mr-1"></i> {Array.isArray(day.warmup) ? day.warmup.join(', ') : day.warmup}</div>}
-                  <ul className="text-sm text-gray-300 space-y-1">
-                    {(day.exercises || day.workout || []).map((ex, j) => {
-                       const exName = typeof ex === 'string' ? ex : (ex.name || ex.exercise);
-                       return <li key={j}>• {exName}</li>;
-                    })}
-                  </ul>
-                  {(day.cooldown || day.stretches) && <div className="text-xs text-[#00cba8] mt-2"><i className="fa-solid fa-wind mr-1"></i> {Array.isArray(day.cooldown || day.stretches) ? (day.cooldown || day.stretches).join(', ') : (day.cooldown || day.stretches)}</div>}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      );
-    };
-
-    const ClientDietView = ({ appData, setFlash }) => {
-      const [customFood, setCustomFood] = useState("");
-      const [loggedFoods, setLoggedFoods] = useState(appData?.dailyLog?.diet_json?.loggedFoods || []);
-      const [saving, setSaving] = useState(false);
-
-      const planData = getPlanData(appData);
-      
-      const calories = planData?.calorieTarget || planData?.nutrition?.calories || planData?.calories || "N/A";
-      const protein = planData?.macros?.protein || planData?.nutrition?.protein || "N/A";
-      const carbs = planData?.macros?.carbs || planData?.nutrition?.carbs || "N/A";
-      const fats = planData?.macros?.fats || planData?.nutrition?.fats || "N/A";
-      
+      // --- Diet Extraction ---
       let meals = [];
-      if (planData) {
-        const source = planData.nutrition ? { ...planData, ...planData.nutrition } : planData;
-        const dietKeys = ['meals', 'mealPlan', 'diet', 'dietPlan', 'guidelines', 'familyMeals', 'sharedMeals', 'householdMeals', 'householdPlan', 'familyPlan', 'sharedDiet', 'partnerPlan'];
-        
-        let extracted = [];
-        for (const key of Object.keys(source)) {
-            const kLower = key.toLowerCase();
-            if (dietKeys.includes(key) || kLower.includes('meal') || kLower.includes('diet') || kLower.includes('food') || kLower.includes('family') || kLower.includes('share') || kLower.includes('breakfast') || kLower.includes('lunch') || kLower.includes('dinner') || kLower.includes('snack')) {
-                const val = source[key];
-                if (Array.isArray(val)) {
-                    extracted = [...extracted, ...val.map(item => typeof item === 'string' ? { name: key, details: item } : item)];
-                } else if (typeof val === 'object' && val !== null) {
-                    extracted = [...extracted, ...Object.entries(val).map(([k, v]) => ({ name: k, details: v }))];
-                } else if (typeof val === 'string') {
-                    extracted.push({ name: key, details: val });
-                }
-            }
-        }
-        
-        const seen = new Set();
-        meals = extracted.filter(m => {
-            const str = JSON.stringify(m);
-            if (seen.has(str)) return false;
-            seen.add(str);
-            return true;
-        });
+      const source = plan.nutrition ? { ...plan, ...plan.nutrition } : plan;
+      const dietKeys = ['meals', 'mealPlan', 'diet', 'dietPlan', 'guidelines', 'familyMeals', 'sharedMeals', 'householdMeals', 'householdPlan', 'familyPlan', 'sharedDiet', 'partnerPlan'];
+      
+      let extracted = [];
+      for (const key of Object.keys(source)) {
+          const kLower = key.toLowerCase();
+          if (dietKeys.includes(key) || kLower.includes('meal') || kLower.includes('diet') || kLower.includes('food') || kLower.includes('family') || kLower.includes('share') || kLower.includes('breakfast') || kLower.includes('lunch') || kLower.includes('dinner') || kLower.includes('snack')) {
+              const val = source[key];
+              if (Array.isArray(val)) {
+                  extracted = [...extracted, ...val.map(item => typeof item === 'string' ? { name: key, details: item } : item)];
+              } else if (typeof val === 'object' && val !== null) {
+                  extracted = [...extracted, ...Object.entries(val).map(([k, v]) => ({ name: k, details: v }))];
+              } else if (typeof val === 'string') {
+                  extracted.push({ name: key, details: val });
+              }
+          }
       }
+      
+      const seen = new Set();
+      meals = extracted.filter(m => {
+          const str = JSON.stringify(m);
+          if (seen.has(str)) return false;
+          seen.add(str);
+          return true;
+      });
 
-      const handleAddCustom = (e) => {
-        e.preventDefault();
-        if(!customFood.trim()) return;
-        setLoggedFoods([...loggedFoods, { name: customFood, type: 'custom' }]);
-        setCustomFood("");
-      };
-
-      const handleSaveLog = async () => {
-        setSaving(true);
-        try {
-          await api('/api/client/daily-log', {
-            method: 'POST',
-            body: JSON.stringify({ date: getLocalDate(), type: 'diet', data: { loggedFoods } })
-          });
-          setFlash({ msg: "Diet log saved successfully!" });
-        } catch (err) { setFlash({ err: err.message }); }
-        setSaving(false);
-      };
-
+      // AI Diet Node Renderer
       const renderMealNode = (rawNode) => {
         let node = rawNode;
-
         if (typeof node === 'string') {
           const trimmed = node.trim();
           if ((trimmed.startsWith('[') && trimmed.endsWith(']')) || (trimmed.startsWith('{') && trimmed.endsWith('}'))) {
             try { node = JSON.parse(trimmed); } catch(e) {}
           }
         }
-
         if (node === null || node === undefined) return null;
-        
         if (typeof node === 'string' || typeof node === 'number') {
           return <div className="text-sm text-gray-300 leading-relaxed">{node}</div>;
         }
-        
         if (Array.isArray(node)) {
           return (
             <div className="space-y-3 mt-3">
@@ -391,7 +315,6 @@
             </div>
           );
         }
-        
         if (typeof node === 'object') {
           if (node.label || node.food || node.name || node.option || node.title) {
             const title = node.label || node.food || node.name || node.option || node.title;
@@ -418,16 +341,13 @@
               </div>
             );
           }
-
           return (
             <div className="space-y-2 mt-2">
               {Object.entries(node).map(([k, v], idx) => {
                 if (k === 'meal' || k === 'name' || k === 'type') return null;
-                
                 if (k.toLowerCase() === 'options' && (Array.isArray(v) || (typeof v === 'string' && v.trim().startsWith('[')))) {
                    return <div key={idx}>{renderMealNode(v)}</div>;
                 }
-
                 return (
                   <div key={idx}>
                     <div className="text-[10px] text-[#ffc940] font-bold uppercase tracking-widest mb-1">{k.replace(/([A-Z])/g, ' $1').trim()}</div>
@@ -444,8 +364,159 @@
       return (
         <div className="p-5 space-y-6">
           <div>
+            <h2 className="text-2xl font-black text-white">Your Plan</h2>
+            <p className="text-sm text-gray-400 mt-1">Review your custom protocols.</p>
+          </div>
+
+          {/* Toggle Buttons */}
+          <div className="flex gap-2 p-1 bg-[#1a1919] rounded-xl border border-white/5">
+            <button 
+              onClick={() => setPlanTab('workout')} 
+              className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${planTab === 'workout' ? 'bg-[#6bff8f] text-[#003a12]' : 'text-gray-400 hover:text-white'}`}
+            >
+              Workout Plan
+            </button>
+            <button 
+              onClick={() => setPlanTab('diet')} 
+              className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all ${planTab === 'diet' ? 'bg-[#ffc940] text-[#003a12]' : 'text-gray-400 hover:text-white'}`}
+            >
+              Diet Plan
+            </button>
+          </div>
+
+          <div className="bg-[#1a1919] border border-[#6bff8f]/20 rounded-3xl p-6">
+            <h3 className="text-[#6bff8f] text-xs font-bold uppercase tracking-widest mb-3">Profile Summary</h3>
+            <p className="text-sm text-gray-300 leading-relaxed">{plan.profileSummary || plan.summary || "Your AI-generated plan is active."}</p>
+          </div>
+
+          {planTab === 'workout' && (
+            <div className="bg-[#1a1919] border border-white/5 rounded-3xl p-6">
+              <h3 className="text-white font-bold mb-4 flex items-center gap-2"><i className="fa-solid fa-dumbbell text-[#6bff8f]"></i> Weekly Workout Split</h3>
+              <div className="space-y-4">
+                {days.map((day, i) => (
+                  <div key={i} className="border-b border-white/5 pb-4 last:border-0 last:pb-0">
+                    <div className="text-sm font-bold text-[#6bff8f] mb-2">{day.day || `Day ${i+1}`}</div>
+                    {day.warmup && <div className="text-xs text-[#ffc940] mb-2"><i className="fa-solid fa-fire mr-1"></i> {Array.isArray(day.warmup) ? day.warmup.join(', ') : day.warmup}</div>}
+                    <ul className="text-sm text-gray-300 space-y-1">
+                      {(day.exercises || day.workout || []).map((ex, j) => {
+                         const exName = typeof ex === 'string' ? ex : (ex.name || ex.exercise);
+                         return <li key={j}>• {exName}</li>;
+                      })}
+                    </ul>
+                    {(day.cooldown || day.stretches) && <div className="text-xs text-[#00cba8] mt-2"><i className="fa-solid fa-wind mr-1"></i> {Array.isArray(day.cooldown || day.stretches) ? (day.cooldown || day.stretches).join(', ') : (day.cooldown || day.stretches)}</div>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {planTab === 'diet' && (
+             <div className="bg-[#1a1919] border border-[#ffc940]/20 rounded-3xl p-6 space-y-4">
+              <h3 className="font-bold text-white flex items-center gap-2"><i className="fa-solid fa-fire text-[#ffc940]"></i> AI Diet Blueprint</h3>
+              {meals.length === 0 ? (
+                <p className="text-sm text-gray-300">Hit your macro targets! No strict meals prescribed.</p>
+              ) : (
+                <div className="space-y-4">
+                  {meals.map((m, i) => {
+                    let mealName = `Meal ${i+1}`;
+                    let mealDetails = m;
+                    
+                    if (typeof m === 'object' && m !== null) {
+                      mealName = m.meal || m.name || m.type || m.time || m.title || `Meal ${i+1}`;
+                      mealDetails = m.details || m.description || m.food || m.options || m.items || m.ingredients || m;
+                    }
+                    
+                    return (
+                      <div key={i} className="border-b border-white/5 pb-5 mb-5 last:border-0 last:pb-0 last:mb-0">
+                        <div className="text-lg font-black text-[#ffc940] capitalize mb-3">{mealName.replace(/([A-Z])/g, ' $1').trim()}</div>
+                        {renderMealNode(mealDetails)}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    const ClientDietView = ({ appData, setFlash }) => {
+      const [customFood, setCustomFood] = useState("");
+      const [selectedAiFood, setSelectedAiFood] = useState("");
+      const [isCustom, setIsCustom] = useState(false);
+      const [loggedFoods, setLoggedFoods] = useState(appData?.dailyLog?.diet_json?.loggedFoods || []);
+      const [saving, setSaving] = useState(false);
+
+      const planData = getPlanData(appData);
+      
+      const calories = planData?.calorieTarget || planData?.nutrition?.calories || planData?.calories || "N/A";
+      const protein = planData?.macros?.protein || planData?.nutrition?.protein || "N/A";
+      const carbs = planData?.macros?.carbs || planData?.nutrition?.carbs || "N/A";
+      const fats = planData?.macros?.fats || planData?.nutrition?.fats || "N/A";
+      
+      // Extract specific food strings from the AI plan to populate the dropdown
+      const aiFoodOptions = useMemo(() => {
+        if (!planData) return [];
+        const opts = new Set();
+        
+        const extractStrings = (node) => {
+          if (!node) return;
+          if (typeof node === 'string') {
+            try {
+              const parsed = JSON.parse(node);
+              extractStrings(parsed);
+            } catch (e) {
+              if (node.length > 5 && node.length < 150 && !node.includes('Weekly Meal Structure')) opts.add(node);
+            }
+          } else if (Array.isArray(node)) {
+            node.forEach(extractStrings);
+          } else if (typeof node === 'object') {
+            if (node.label) opts.add(node.label);
+            if (node.food) opts.add(node.food);
+            if (node.name && !['Breakfast', 'Lunch', 'Dinner', 'Snack'].includes(node.name)) opts.add(node.name);
+            Object.values(node).forEach(v => {
+              if (typeof v === 'object' || Array.isArray(v) || typeof v === 'string') extractStrings(v);
+            });
+          }
+        };
+
+        const source = planData.nutrition ? { ...planData, ...planData.nutrition } : planData;
+        ['meals', 'mealPlan', 'diet', 'dietPlan', 'familyMeals', 'sharedMeals'].forEach(k => {
+          if (source[k]) extractStrings(source[k]);
+        });
+
+        return Array.from(opts).filter(Boolean);
+      }, [planData]);
+
+      const handleAddFood = (e) => {
+        e.preventDefault();
+        const foodToLog = isCustom ? customFood : selectedAiFood;
+        if(!foodToLog.trim()) return;
+        
+        setLoggedFoods([...loggedFoods, { name: foodToLog, type: isCustom ? 'custom' : 'ai' }]);
+        setCustomFood("");
+        setSelectedAiFood("");
+        setIsCustom(false);
+      };
+
+      const handleSaveLog = async () => {
+        setSaving(true);
+        try {
+          await api('/api/client/daily-log', {
+            method: 'POST',
+            body: JSON.stringify({ date: getLocalDate(), type: 'diet', data: { loggedFoods } })
+          });
+          setFlash({ msg: "Diet log saved successfully!" });
+        } catch (err) { setFlash({ err: err.message }); }
+        setSaving(false);
+      };
+
+      return (
+        <div className="p-5 space-y-6">
+          <div>
             <h2 className="text-2xl font-black text-white">Diet Log</h2>
-            <p className="text-sm text-gray-400 mt-1">Track your macros and meals.</p>
+            <p className="text-sm text-gray-400 mt-1">Track your macros and daily meals.</p>
           </div>
 
           <div className="grid grid-cols-4 gap-3">
@@ -466,43 +537,40 @@
               <div className="text-[9px] text-gray-400 uppercase mt-1 tracking-widest">Fat</div>
             </div>
           </div>
-          
-          {meals && meals.length > 0 ? (
-            <div className="bg-[#1a1919] border border-[#ffc940]/20 rounded-3xl p-6 space-y-4">
-              <h3 className="font-bold text-white flex items-center gap-2"><i className="fa-solid fa-fire text-[#ffc940]"></i> Your AI Diet Plan</h3>
-              <div className="space-y-4">
-                {meals.map((m, i) => {
-                  let mealName = `Meal ${i+1}`;
-                  let mealDetails = m;
-                  
-                  if (typeof m === 'object' && m !== null) {
-                    mealName = m.meal || m.name || m.type || m.time || m.title || `Meal ${i+1}`;
-                    mealDetails = m.details || m.description || m.food || m.options || m.items || m.ingredients || m;
-                  }
-                  
-                  return (
-                    <div key={i} className="border-b border-white/5 pb-5 mb-5 last:border-0 last:pb-0 last:mb-0">
-                      <div className="text-lg font-black text-[#ffc940] capitalize mb-3">{mealName.replace(/([A-Z])/g, ' $1').trim()}</div>
-                      {renderMealNode(mealDetails)}
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          ) : planData && (
-             <div className="bg-[#1a1919] border border-[#ffc940]/20 rounded-3xl p-6 space-y-4">
-              <h3 className="font-bold text-white flex items-center gap-2"><i className="fa-solid fa-fire text-[#ffc940]"></i> Diet Guidelines</h3>
-              <p className="text-sm text-gray-300 leading-relaxed">
-                 Hit your daily macro targets above! Your AI coach did not prescribe specific locked-in meals for this cycle. Track your foods below to ensure you meet your nutritional goals.
-              </p>
-            </div>
-          )}
 
-          <div className="bg-[#1a1919] border border-white/5 rounded-3xl p-6 space-y-4">
+          <div className="bg-[#1a1919] border border-[#6bff8f]/20 rounded-3xl p-6 space-y-4">
             <h3 className="font-bold text-white mb-2"><i className="fa-solid fa-plus text-[#6bff8f] mr-2"></i> Track Your Food</h3>
-            <form onSubmit={handleAddCustom} className="flex gap-2">
-              <input value={customFood} onChange={e => setCustomFood(e.target.value)} placeholder="e.g. 1 Apple, Protein Shake..." className="bg-[#262626] border-white/10 text-white text-sm" />
-              <button type="submit" className="bg-[#6bff8f] text-[#003a12] font-bold px-4 rounded-xl text-sm">Add</button>
+            <form onSubmit={handleAddFood} className="flex flex-col gap-3">
+              <select 
+                value={isCustom ? "custom" : selectedAiFood}
+                onChange={(e) => {
+                  if (e.target.value === 'custom') {
+                    setIsCustom(true);
+                    setSelectedAiFood("");
+                  } else {
+                    setIsCustom(false);
+                    setSelectedAiFood(e.target.value);
+                  }
+                }}
+                className="bg-[#262626] border-white/10 text-white text-sm cursor-pointer"
+              >
+                <option value="" disabled>-- Select Meal --</option>
+                {aiFoodOptions.map((opt, i) => (
+                  <option key={i} value={opt}>{opt.length > 60 ? opt.substring(0, 60) + '...' : opt}</option>
+                ))}
+                <option value="custom">+ Custom Food Entry...</option>
+              </select>
+
+              {isCustom && (
+                <input 
+                  value={customFood} 
+                  onChange={e => setCustomFood(e.target.value)} 
+                  placeholder="e.g. 1 Apple, Protein Shake..." 
+                  className="bg-[#0b1628] border-white/10 text-white text-sm focus:border-[#6bff8f] transition-colors" 
+                  autoFocus
+                />
+              )}
+              <button type="submit" disabled={(!isCustom && !selectedAiFood) || (isCustom && !customFood.trim())} className="action-btn w-full text-sm py-3 mt-1">Add to Daily Log</button>
             </form>
           </div>
 
@@ -511,12 +579,15 @@
             {loggedFoods.map((f, i) => (
               <div key={i} className="bg-[#1a1919] border-l-4 border-l-[#6bff8f] rounded-xl p-4 flex justify-between items-center">
                 <span className="text-white text-sm font-medium">{f.name}</span>
-                <button onClick={() => setLoggedFoods(loggedFoods.filter((_, idx) => idx !== i))} className="text-red-400"><i className="fa-solid fa-trash text-xs"></i></button>
+                <button onClick={() => setLoggedFoods(loggedFoods.filter((_, idx) => idx !== i))} className="text-red-400 p-2 hover:bg-red-500/10 rounded-lg transition-colors"><i className="fa-solid fa-trash text-xs"></i></button>
               </div>
             ))}
             {loggedFoods.length === 0 && <p className="text-xs text-gray-500 pl-2">Nothing tracked yet.</p>}
           </div>
-          <button onClick={handleSaveLog} disabled={saving} className="action-btn w-full mt-4">{saving ? 'Saving...' : 'Save Diet Log'}</button>
+          
+          <button onClick={handleSaveLog} disabled={saving || loggedFoods.length === 0} className="bg-transparent border border-[#6bff8f]/30 text-[#6bff8f] font-bold py-3 rounded-xl w-full mt-4 hover:bg-[#6bff8f]/10 transition-colors">
+            {saving ? 'Saving...' : 'Save & Sync Log'}
+          </button>
         </div>
       );
     };
@@ -528,7 +599,6 @@
       
       const planData = getPlanData(appData);
       
-      // Robust Day Parsing for Workouts
       let daysRaw = planData?.workoutSplit || planData?.workout_plan || planData?.workouts || planData?.routine || [];
       let days = [];
       if (Array.isArray(daysRaw)) {
@@ -543,7 +613,6 @@
       const currentDay = days[selectedDayIdx] || null;
       const exercisesRaw = currentDay?.exercises || currentDay?.workout || currentDay?.movements || [];
 
-      // Safe, string-fallback parsing of exercises
       const todayWorkout = exercisesRaw.map((ex, i) => {
         const isObj = typeof ex === 'object' && ex !== null;
         const name = isObj ? (ex.name || ex.exercise || "Unknown Exercise") : String(ex);
