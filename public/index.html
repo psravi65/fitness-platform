@@ -44,6 +44,13 @@
       return data;
     };
 
+    // --- Helper: Get Local Date string (YYYY-MM-DD) avoiding UTC mismatch ---
+    const getLocalDate = () => {
+      const d = new Date();
+      const offset = d.getTimezoneOffset() * 60000;
+      return new Date(d.getTime() - offset).toISOString().split('T')[0];
+    };
+
     const GlobalStyles = () => (
       <style>{`
         :root {
@@ -245,7 +252,18 @@
 
       const calories = plan?.calorieTarget || plan?.nutrition?.calories || plan?.calories || "N/A";
       const protein = plan?.macros?.protein || plan?.nutrition?.protein || "N/A";
-      const days = plan?.workoutSplit || plan?.workout_plan || plan?.workouts || plan?.routine || [];
+      
+      // Robust Day Parsing: Handle both Array and Object formations safely
+      let daysRaw = plan?.workoutSplit || plan?.workout_plan || plan?.workouts || plan?.routine || [];
+      let days = [];
+      if (Array.isArray(daysRaw)) {
+        days = daysRaw;
+      } else if (typeof daysRaw === 'object' && daysRaw !== null) {
+        days = Object.entries(daysRaw).map(([k, v]) => ({
+          day: k,
+          ...(typeof v === 'object' && v !== null && !Array.isArray(v) ? v : { exercises: Array.isArray(v) ? v : [v] })
+        }));
+      }
 
       return (
         <div className="p-5 space-y-6">
@@ -298,7 +316,6 @@
       const carbs = planData?.macros?.carbs || planData?.nutrition?.carbs || "N/A";
       const fats = planData?.macros?.fats || planData?.nutrition?.fats || "N/A";
       
-      // NEW ULTRA-BULLETPROOF PARSER: Searches the entire JSON for ANY key mentioning "meal", "diet", "family", "food", or "share"
       let meals = [];
       if (planData) {
         const source = planData.nutrition ? { ...planData, ...planData.nutrition } : planData;
@@ -307,23 +324,18 @@
         let extracted = [];
         for (const key of Object.keys(source)) {
             const kLower = key.toLowerCase();
-            // If the key explicitly matches, OR contains "meal", "diet", "food", or "family"
-            if (dietKeys.includes(key) || kLower.includes('meal') || kLower.includes('diet') || kLower.includes('food') || kLower.includes('family') || kLower.includes('share')) {
+            if (dietKeys.includes(key) || kLower.includes('meal') || kLower.includes('diet') || kLower.includes('food') || kLower.includes('family') || kLower.includes('share') || kLower.includes('breakfast') || kLower.includes('lunch') || kLower.includes('dinner') || kLower.includes('snack')) {
                 const val = source[key];
                 if (Array.isArray(val)) {
-                    // Extract Arrays
                     extracted = [...extracted, ...val.map(item => typeof item === 'string' ? { name: key, details: item } : item)];
                 } else if (typeof val === 'object' && val !== null) {
-                    // Extract Objects (like {"Breakfast": "...", "Shared Dinner": "..."})
                     extracted = [...extracted, ...Object.entries(val).map(([k, v]) => ({ name: k, details: v }))];
                 } else if (typeof val === 'string') {
-                    // Extract raw strings
                     extracted.push({ name: key, details: val });
                 }
             }
         }
         
-        // Remove duplicates if the AI nested the same data twice
         const seen = new Set();
         meals = extracted.filter(m => {
             const str = JSON.stringify(m);
@@ -345,66 +357,88 @@
         try {
           await api('/api/client/daily-log', {
             method: 'POST',
-            body: JSON.stringify({ date: new Date().toISOString().split('T')[0], type: 'diet', data: { loggedFoods } })
+            body: JSON.stringify({ date: getLocalDate(), type: 'diet', data: { loggedFoods } })
           });
           setFlash({ msg: "Diet log saved successfully!" });
         } catch (err) { setFlash({ err: err.message }); }
         setSaving(false);
       };
 
-      // NEW UI HELPER: Safely render deeply nested AI meal options
-      const renderMealDetails = (details) => {
-        if (!details) return null;
-        if (typeof details === 'string') return <div className="text-sm text-gray-300 leading-relaxed">{details}</div>;
+      const renderMealNode = (rawNode) => {
+        let node = rawNode;
+
+        if (typeof node === 'string') {
+          const trimmed = node.trim();
+          if ((trimmed.startsWith('[') && trimmed.endsWith(']')) || (trimmed.startsWith('{') && trimmed.endsWith('}'))) {
+            try { node = JSON.parse(trimmed); } catch(e) {}
+          }
+        }
+
+        if (node === null || node === undefined) return null;
         
-        // If it's an array of options (like in the screenshot)
-        if (Array.isArray(details)) {
+        if (typeof node === 'string' || typeof node === 'number') {
+          return <div className="text-sm text-gray-300 leading-relaxed">{node}</div>;
+        }
+        
+        if (Array.isArray(node)) {
           return (
-            <div className="space-y-2 mt-3">
-              {details.map((item, idx) => (
+            <div className="space-y-3 mt-3">
+              {node.map((item, idx) => (
                 <div key={idx} className="bg-[#0b1628] p-4 rounded-xl border border-white/5 shadow-sm">
-                  {renderMealDetails(item)}
+                  {renderMealNode(item)}
                 </div>
               ))}
             </div>
           );
         }
-
-        if (typeof details === 'object') {
-          // Check for AI format with label/food and macros
-          if (details.label || details.food) {
-            const labelText = details.label || details.food;
+        
+        if (typeof node === 'object') {
+          if (node.label || node.food || node.name || node.option || node.title) {
+            const title = node.label || node.food || node.name || node.option || node.title;
             const macros = [
-               details.calories && `${details.calories} kcal`,
-               details.protein && `${details.protein}g P`,
-               details.carbs && `${details.carbs}g C`,
-               details.fat && `${details.fat}g F`
+               node.calories && `${node.calories} kcal`,
+               node.protein && `${node.protein}g Pro`,
+               node.carbs && `${node.carbs}g Carb`,
+               (node.fat || node.fats) && `${node.fat || node.fats}g Fat`
             ].filter(Boolean).join(' • ');
 
             return (
               <div>
-                <div className="text-sm text-gray-200 leading-relaxed">{labelText}</div>
-                {macros && <div className="text-[10px] text-[#00cba8] font-mono mt-2 uppercase tracking-wider font-bold">{macros}</div>}
+                <div className="text-sm font-bold text-white mb-1 leading-snug">{title}</div>
+                {macros && <div className="text-[10px] text-[#00cba8] font-mono uppercase tracking-widest font-bold mt-2">{macros}</div>}
+                {Object.entries(node).map(([k, v], idx) => {
+                   if (['label', 'food', 'name', 'option', 'title', 'calories', 'protein', 'carbs', 'fat', 'fats'].includes(k)) return null;
+                   return (
+                     <div key={idx} className="mt-2 pt-2 border-t border-white/5">
+                       <span className="text-[10px] text-[#ffc940] font-bold uppercase tracking-widest">{k.replace(/([A-Z])/g, ' $1').trim()}:</span> 
+                       <div className="mt-1">{renderMealNode(v)}</div>
+                     </div>
+                   );
+                })}
               </div>
             );
           }
 
-          // Generic object fallback
           return (
-            <div className="space-y-3 mt-2">
-              {Object.entries(details).map(([k, v], idx) => {
+            <div className="space-y-2 mt-2">
+              {Object.entries(node).map(([k, v], idx) => {
                 if (k === 'meal' || k === 'name' || k === 'type') return null;
+                
+                if (k.toLowerCase() === 'options' && (Array.isArray(v) || (typeof v === 'string' && v.trim().startsWith('[')))) {
+                   return <div key={idx}>{renderMealNode(v)}</div>;
+                }
+
                 return (
                   <div key={idx}>
-                    <div className="text-[10px] text-[#6bff8f] font-bold uppercase tracking-widest mb-1">{k.replace(/([A-Z])/g, ' $1').trim()}</div>
-                    <div>{renderMealDetails(v)}</div>
+                    <div className="text-[10px] text-[#ffc940] font-bold uppercase tracking-widest mb-1">{k.replace(/([A-Z])/g, ' $1').trim()}</div>
+                    <div className="pl-2 border-l border-white/10">{renderMealNode(v)}</div>
                   </div>
                 );
               })}
             </div>
           );
         }
-        return <div className="text-sm text-gray-300">{String(details)}</div>;
+        return null;
       };
 
       return (
@@ -433,7 +467,6 @@
             </div>
           </div>
           
-          {/* Dynamically Rendered AI Diet Plan */}
           {meals && meals.length > 0 ? (
             <div className="bg-[#1a1919] border border-[#ffc940]/20 rounded-3xl p-6 space-y-4">
               <h3 className="font-bold text-white flex items-center gap-2"><i className="fa-solid fa-fire text-[#ffc940]"></i> Your AI Diet Plan</h3>
@@ -444,13 +477,13 @@
                   
                   if (typeof m === 'object' && m !== null) {
                     mealName = m.meal || m.name || m.type || m.time || m.title || `Meal ${i+1}`;
-                    mealDetails = m.details || m.description || m.food || m.items || m.ingredients || m;
+                    mealDetails = m.details || m.description || m.food || m.options || m.items || m.ingredients || m;
                   }
                   
                   return (
                     <div key={i} className="border-b border-white/5 pb-5 mb-5 last:border-0 last:pb-0 last:mb-0">
                       <div className="text-lg font-black text-[#ffc940] capitalize mb-3">{mealName.replace(/([A-Z])/g, ' $1').trim()}</div>
-                      {renderMealDetails(mealDetails)}
+                      {renderMealNode(mealDetails)}
                     </div>
                   )
                 })}
@@ -494,22 +527,34 @@
       const [selectedDayIdx, setSelectedDayIdx] = useState(0);
       
       const planData = getPlanData(appData);
-      const days = planData?.workoutSplit || planData?.workout_plan || planData?.workouts || planData?.routine || [];
+      
+      // Robust Day Parsing for Workouts
+      let daysRaw = planData?.workoutSplit || planData?.workout_plan || planData?.workouts || planData?.routine || [];
+      let days = [];
+      if (Array.isArray(daysRaw)) {
+        days = daysRaw;
+      } else if (typeof daysRaw === 'object' && daysRaw !== null) {
+        days = Object.entries(daysRaw).map(([k, v]) => ({
+          day: k,
+          ...(typeof v === 'object' && v !== null && !Array.isArray(v) ? v : { exercises: Array.isArray(v) ? v : [v] })
+        }));
+      }
       
       const currentDay = days[selectedDayIdx] || null;
       const exercisesRaw = currentDay?.exercises || currentDay?.workout || currentDay?.movements || [];
 
-      // Smart parse of exercises to identify cardio accurately
+      // Safe, string-fallback parsing of exercises
       const todayWorkout = exercisesRaw.map((ex, i) => {
-        const name = typeof ex === 'string' ? ex : (ex.name || ex.exercise || "Unknown Exercise");
+        const isObj = typeof ex === 'object' && ex !== null;
+        const name = isObj ? (ex.name || ex.exercise || "Unknown Exercise") : String(ex);
         const isCardio = /run|jog|treadmill|sprint|bike|cycle|row|cardio|walk|elliptical|stair|swim|step/i.test(name);
         return {
            id: i, 
            name: name, 
            type: isCardio ? "cardio" : "strength", 
-           targetSets: ex.sets || 3, 
-           targetReps: ex.reps || (isCardio ? "N/A" : "10"),
-           duration: ex.duration || ""
+           targetSets: isObj ? (ex.sets || 3) : 3, 
+           targetReps: isObj ? (ex.reps || (isCardio ? "N/A" : "10")) : (isCardio ? "N/A" : "10"),
+           duration: isObj ? (ex.duration || "") : ""
         };
       });
 
@@ -521,7 +566,7 @@
         data.dayLogged = currentDay?.day || `Day ${selectedDayIdx+1}`;
         try {
           await api('/api/client/daily-log', {
-            method: 'POST', body: JSON.stringify({ date: new Date().toISOString().split('T')[0], type: 'workout', data })
+            method: 'POST', body: JSON.stringify({ date: getLocalDate(), type: 'workout', data })
           });
           setFlash({ msg: "Workout log saved!" });
         } catch (err) { setFlash({ err: err.message }); }
@@ -539,7 +584,6 @@
         <form onSubmit={handleSaveLog} className="p-5 space-y-6">
           <div><h2 className="text-2xl font-black text-white">Workout Log</h2></div>
 
-          {/* RESTORED: Day Selector Tabs */}
           <div className="flex gap-2 overflow-x-auto pb-2 mb-2 scrollbar-hide">
             {days.map((d, i) => (
               <button 
@@ -553,7 +597,6 @@
             ))}
           </div>
 
-          {/* NEW: Warmup Block */}
           {warmup && (
             <div className="bg-[#1a1919] border border-[#ffc940]/20 rounded-2xl p-4">
                <h3 className="text-[#ffc940] text-xs font-bold uppercase tracking-widest mb-2"><i className="fa-solid fa-fire mr-1"></i> Warm-up Routine</h3>
@@ -605,7 +648,6 @@
             })}
           </div>
 
-          {/* NEW: Cooldown Block */}
           {cooldown && (
             <div className="bg-[#1a1919] border border-[#00cba8]/20 rounded-2xl p-4">
                <h3 className="text-[#00cba8] text-xs font-bold uppercase tracking-widest mb-2"><i className="fa-solid fa-wind mr-1"></i> Cooldown & Stretch</h3>
@@ -633,7 +675,7 @@
         const data = Object.fromEntries(new FormData(e.target).entries());
         try {
           await api('/api/client/checkin', {
-            method: 'POST', body: JSON.stringify({ date: new Date().toISOString().split('T')[0], ...data })
+            method: 'POST', body: JSON.stringify({ date: getLocalDate(), ...data })
           });
           setFlash({ msg: "Weekly Check-in saved successfully!" });
         } catch (err) { setFlash({ err: err.message }); }
@@ -668,8 +710,17 @@
     const ClientShell = ({ me, setMe, setFlash }) => {
       const [activeTab, setActiveTab] = useState('home');
       const [appData, setAppData] = useState(null);
+      const [loadingApp, setLoadingApp] = useState(true);
 
-      useEffect(() => { api('/api/app/bootstrap').then(res => setAppData(res)).catch(() => {}); }, []);
+      useEffect(() => { 
+        api('/api/app/bootstrap')
+          .then(res => { setAppData(res); setLoadingApp(false); })
+          .catch(() => { setLoadingApp(false); }); 
+      }, []);
+
+      if (loadingApp) {
+        return <div className="min-h-screen bg-[#0e0e0e] flex items-center justify-center"><i className="fa-solid fa-spinner fa-spin text-4xl text-[#6bff8f]"></i></div>;
+      }
 
       // Uses our robust parser to determine if plan is active
       const hasPlan = !!getPlanData(appData);
