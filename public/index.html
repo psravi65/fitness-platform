@@ -300,7 +300,7 @@
 
     const ClientIntakeView = ({ appData, setFlash }) => {
       const [saving, setSaving] = useState(false);
-      const intake = appData?.intake?.answers_json || {};
+      const a = appData?.intake?.answers_json || {};
 
       const handleSubmit = async (e) => {
         e.preventDefault();
@@ -308,22 +308,278 @@
         const data = Object.fromEntries(new FormData(e.target).entries());
         try {
           await api('/api/app/intake', { method: 'POST', body: JSON.stringify({ answers: data, complete: true }) });
-          setFlash({ msg: "Intake form saved successfully!" });
+          setFlash({ msg: "Intake form submitted! Your coach will generate your plan shortly." });
         } catch (err) { setFlash({ err: err.message }); }
         setSaving(false);
       };
 
+      const SectionHeader = ({ icon, title, subtitle }) => (
+        <div className="flex items-center gap-3 mb-5 pb-3 border-b border-white/5">
+          <div className="w-9 h-9 rounded-xl bg-[#6bff8f]/10 flex items-center justify-center text-[#6bff8f] shrink-0">
+            <i className={`fa-solid ${icon} text-sm`}></i>
+          </div>
+          <div>
+            <div className="text-sm font-black text-white">{title}</div>
+            {subtitle && <div className="text-[10px] text-gray-500 mt-0.5">{subtitle}</div>}
+          </div>
+        </div>
+      );
+
+      const Field = ({ label, required, children }) => (
+        <label className="block">
+          <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider block mb-2">
+            {label}{required && <span className="text-red-400 ml-1">*</span>}
+          </span>
+          {children}
+        </label>
+      );
+
+      const inp = "bg-[#262626] border-white/10 text-white w-full";
+      const sel = "bg-[#262626] border-white/10 text-white w-full";
+
       return (
-        <div className="p-5 space-y-6">
-          <div><h2 className="text-2xl font-black text-white">Intake Form</h2><p className="text-sm text-gray-400 mt-1">Tell your coach about your goals.</p></div>
-          <form onSubmit={handleSubmit} className="bg-[#1a1919] border border-white/5 rounded-3xl p-6 space-y-5">
-            <label className="block"><span className="text-xs text-gray-400 font-bold uppercase block mb-2">Primary Goal</span><select name="goal" defaultValue={intake.goal} className="bg-[#262626] border-white/10 text-white w-full"><option value="lose_fat">Lose Fat</option><option value="build_muscle">Build Muscle</option><option value="recomp">Body Recomposition</option></select></label>
-            <div className="grid grid-cols-2 gap-4">
-              <label className="block"><span className="text-xs text-gray-400 font-bold uppercase block mb-2">Age</span><input type="number" name="age" defaultValue={intake.age} required className="bg-[#262626] border-white/10 text-white w-full" /></label>
-              <label className="block"><span className="text-xs text-gray-400 font-bold uppercase block mb-2">Weight (kg)</span><input type="number" name="weight" defaultValue={intake.weight} required className="bg-[#262626] border-white/10 text-white w-full" /></label>
+        <div className="p-5 space-y-6 pb-28">
+          <div>
+            <h2 className="text-2xl font-black text-white">Intake Form</h2>
+            <p className="text-sm text-gray-400 mt-1">Complete all sections so your coach can build the perfect plan for you.</p>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-5">
+
+            {/* ── 1. Personal Profile ── */}
+            <div className="bg-[#1a1919] border border-white/5 rounded-3xl p-6 space-y-4">
+              <SectionHeader icon="fa-user" title="Personal Profile" subtitle="Basic information" />
+              <Field label="Full Name" required>
+                <input name="fullName" defaultValue={a.fullName} required placeholder="Your full name" className={inp} />
+              </Field>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Age" required>
+                  <input type="number" name="age" defaultValue={a.age} required min="10" max="80" placeholder="e.g. 28" className={inp} />
+                </Field>
+                <Field label="Gender" required>
+                  <select name="gender" defaultValue={a.gender || ''} required className={sel}>
+                    <option value="">Select</option>
+                    <option value="male">Male</option>
+                    <option value="female">Female</option>
+                    <option value="other">Other</option>
+                  </select>
+                </Field>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Height (cm)" required>
+                  <input type="number" name="height" defaultValue={a.height} required min="100" max="250" placeholder="e.g. 172" className={inp} />
+                </Field>
+                <Field label="Current Weight (kg)" required>
+                  <input type="number" name="currentWeight" defaultValue={a.currentWeight} required step="0.1" placeholder="e.g. 78" className={inp} />
+                </Field>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Target Weight (kg)">
+                  <input type="number" name="targetWeight" defaultValue={a.targetWeight} step="0.1" placeholder="e.g. 70" className={inp} />
+                </Field>
+                <Field label="Body Fat % (if known)">
+                  <input type="number" name="bodyFatPercent" defaultValue={a.bodyFatPercent} step="0.5" placeholder="e.g. 22" className={inp} />
+                </Field>
+              </div>
+              <Field label="Occupation">
+                <input name="occupation" defaultValue={a.occupation} placeholder="e.g. Software engineer, Teacher..." className={inp} />
+              </Field>
             </div>
-            <label className="block"><span className="text-xs text-gray-400 font-bold uppercase block mb-2">Injuries / Limitations</span><textarea name="injuries" defaultValue={intake.injuries} className="bg-[#262626] border-white/10 text-white w-full min-h-[100px]"></textarea></label>
-            <button type="submit" disabled={saving} className="action-btn w-full mt-2">{saving ? 'Saving...' : 'Submit Intake'}</button>
+
+            {/* ── 2. Goals ── */}
+            <div className="bg-[#1a1919] border border-white/5 rounded-3xl p-6 space-y-4">
+              <SectionHeader icon="fa-bullseye" title="Your Goals" subtitle="What you want to achieve" />
+              <Field label="Primary Goal" required>
+                <select name="goalType" defaultValue={a.goalType || 'lose_fat'} required className={sel}>
+                  <option value="lose_fat">Lose Fat</option>
+                  <option value="build_muscle">Build Muscle</option>
+                  <option value="recomp">Body Recomposition</option>
+                  <option value="athletic_performance">Athletic Performance</option>
+                  <option value="maintain">Maintain & Tone</option>
+                  <option value="general_fitness">General Fitness</option>
+                </select>
+              </Field>
+              <Field label="Goal Timeline">
+                <select name="goalTimeline" defaultValue={a.goalTimeline || ''} className={sel}>
+                  <option value="">Select</option>
+                  <option value="4_weeks">4 weeks</option>
+                  <option value="8_weeks">8 weeks</option>
+                  <option value="12_weeks">12 weeks (3 months)</option>
+                  <option value="6_months">6 months</option>
+                  <option value="ongoing">Ongoing lifestyle</option>
+                </select>
+              </Field>
+              <Field label="Motivation / Why this goal?">
+                <textarea name="motivation" defaultValue={a.motivation} placeholder="e.g. Wedding in 3 months, feel more energetic, improve health markers..." className={`${inp} min-h-[80px]`}></textarea>
+              </Field>
+            </div>
+
+            {/* ── 3. Training Background ── */}
+            <div className="bg-[#1a1919] border border-white/5 rounded-3xl p-6 space-y-4">
+              <SectionHeader icon="fa-dumbbell" title="Training Background" subtitle="Your workout history and availability" />
+              <Field label="Experience Level" required>
+                <select name="experienceLevel" defaultValue={a.experienceLevel || 'beginner'} required className={sel}>
+                  <option value="beginner">Beginner (less than 6 months)</option>
+                  <option value="intermediate">Intermediate (6 months – 2 years)</option>
+                  <option value="advanced">Advanced (2+ years consistent)</option>
+                </select>
+              </Field>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Days Available Per Week" required>
+                  <select name="daysPerWeek" defaultValue={a.daysPerWeek || '4'} required className={sel}>
+                    {[2,3,4,5,6].map(n => <option key={n} value={n}>{n} days</option>)}
+                  </select>
+                </Field>
+                <Field label="Preferred Workout Time">
+                  <select name="workoutTime" defaultValue={a.workoutTime || ''} className={sel}>
+                    <option value="">No preference</option>
+                    <option value="early_morning">Early morning (5–7am)</option>
+                    <option value="morning">Morning (7–10am)</option>
+                    <option value="afternoon">Afternoon (12–4pm)</option>
+                    <option value="evening">Evening (5–8pm)</option>
+                    <option value="night">Night (after 8pm)</option>
+                  </select>
+                </Field>
+              </div>
+              <Field label="Workout Duration Available">
+                <select name="workoutDuration" defaultValue={a.workoutDuration || ''} className={sel}>
+                  <option value="">Select</option>
+                  <option value="30_min">30 minutes</option>
+                  <option value="45_min">45 minutes</option>
+                  <option value="60_min">60 minutes</option>
+                  <option value="90_min">90 minutes</option>
+                </select>
+              </Field>
+              <Field label="Gym / Equipment Access" required>
+                <select name="gymAccess" defaultValue={a.gymAccess || 'full_gym'} required className={sel}>
+                  <option value="full_gym">Full commercial gym</option>
+                  <option value="home_gym">Home gym (dumbbells, rack)</option>
+                  <option value="minimal_equipment">Minimal equipment (bands, dumbbells)</option>
+                  <option value="bodyweight_only">Bodyweight only</option>
+                </select>
+              </Field>
+              <Field label="Current / Past Training Activities">
+                <input name="currentActivities" defaultValue={a.currentActivities} placeholder="e.g. weight training 3x/week, evening walks, yoga..." className={inp} />
+              </Field>
+              <Field label="Sports or Physical Activities You Enjoy">
+                <input name="sportsActivities" defaultValue={a.sportsActivities} placeholder="e.g. cricket, swimming, cycling, football..." className={inp} />
+              </Field>
+            </div>
+
+            {/* ── 4. Diet & Nutrition ── */}
+            <div className="bg-[#1a1919] border border-white/5 rounded-3xl p-6 space-y-4">
+              <SectionHeader icon="fa-utensils" title="Diet & Nutrition" subtitle="Your food preferences and habits" />
+              <Field label="Diet Type" required>
+                <select name="dietType" defaultValue={a.dietType || 'non_vegetarian'} required className={sel}>
+                  <option value="non_vegetarian">Non-Vegetarian</option>
+                  <option value="vegetarian">Vegetarian</option>
+                  <option value="eggetarian">Eggetarian (eggs, no meat)</option>
+                  <option value="vegan">Vegan</option>
+                  <option value="pescatarian">Pescatarian (fish, no meat)</option>
+                </select>
+              </Field>
+              <Field label="Cuisine Preference">
+                <select name="cuisineStyle" defaultValue={a.cuisineStyle || ''} className={sel}>
+                  <option value="">No preference</option>
+                  <option value="south_indian">South Indian</option>
+                  <option value="north_indian">North Indian</option>
+                  <option value="mixed_indian">Mixed Indian</option>
+                  <option value="continental">Continental / Western</option>
+                  <option value="mixed">Mixed / Flexible</option>
+                </select>
+              </Field>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Meals Per Day">
+                  <select name="mealsPerDay" defaultValue={a.mealsPerDay || '3'} className={sel}>
+                    {[2,3,4,5].map(n => <option key={n} value={n}>{n} meals</option>)}
+                  </select>
+                </Field>
+                <Field label="Eating Out (per week)">
+                  <select name="eatingOut" defaultValue={a.eatingOut || ''} className={sel}>
+                    <option value="">Select</option>
+                    <option value="rarely">Rarely</option>
+                    <option value="1_2_times">1–2 times</option>
+                    <option value="3_4_times">3–4 times</option>
+                    <option value="daily">Daily</option>
+                  </select>
+                </Field>
+              </div>
+              <Field label="Food Allergies or Intolerances">
+                <input name="foodAllergies" defaultValue={a.foodAllergies} placeholder="e.g. lactose intolerant, nut allergy, gluten..." className={inp} />
+              </Field>
+              <Field label="Foods You Dislike or Avoid">
+                <input name="foodDislikes" defaultValue={a.foodDislikes} placeholder="e.g. broccoli, fish, bitter gourd..." className={inp} />
+              </Field>
+              <Field label="Current Supplements (if any)">
+                <input name="currentSupplements" defaultValue={a.currentSupplements} placeholder="e.g. whey protein, creatine, multivitamin..." className={inp} />
+              </Field>
+            </div>
+
+            {/* ── 5. Lifestyle ── */}
+            <div className="bg-[#1a1919] border border-white/5 rounded-3xl p-6 space-y-4">
+              <SectionHeader icon="fa-sun" title="Lifestyle & Daily Activity" subtitle="Your routine outside the gym" />
+              <Field label="Daily Activity Level" required>
+                <select name="activityLevel" defaultValue={a.activityLevel || 'sedentary'} required className={sel}>
+                  <option value="sedentary">Sedentary (desk job, mostly sitting)</option>
+                  <option value="lightly_active">Lightly active (light walking, housework)</option>
+                  <option value="moderately_active">Moderately active (on feet most of day)</option>
+                  <option value="very_active">Very active (physical job or daily sport)</option>
+                </select>
+              </Field>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Sleep (hours/night)">
+                  <select name="sleepHours" defaultValue={a.sleepHours || '7'} className={sel}>
+                    {['less than 5','5','6','7','8','9+'].map(v => <option key={v} value={v}>{v} hrs</option>)}
+                  </select>
+                </Field>
+                <Field label="Stress Level">
+                  <select name="stressLevel" defaultValue={a.stressLevel || 'moderate'} className={sel}>
+                    <option value="low">Low</option>
+                    <option value="moderate">Moderate</option>
+                    <option value="high">High</option>
+                    <option value="very_high">Very high</option>
+                  </select>
+                </Field>
+              </div>
+              <Field label="Daily Water Intake">
+                <select name="waterIntake" defaultValue={a.waterIntake || ''} className={sel}>
+                  <option value="">Select</option>
+                  <option value="less_than_1L">Less than 1L</option>
+                  <option value="1_2L">1–2 litres</option>
+                  <option value="2_3L">2–3 litres</option>
+                  <option value="3L_plus">3+ litres</option>
+                </select>
+              </Field>
+            </div>
+
+            {/* ── 6. Medical & Injuries ── */}
+            <div className="bg-[#1a1919] border border-red-500/10 rounded-3xl p-6 space-y-4">
+              <SectionHeader icon="fa-heart-pulse" title="Medical & Injuries" subtitle="Important for safe programme design" />
+              <Field label="Injuries or Physical Limitations">
+                <textarea name="injuries" defaultValue={a.injuries} placeholder="e.g. lower back pain, knee surgery 2021, shoulder impingement..." className={`${inp} min-h-[80px]`}></textarea>
+              </Field>
+              <Field label="Movement Restrictions">
+                <input name="movementRestrictions" defaultValue={a.movementRestrictions} placeholder="e.g. cannot squat deep, avoid overhead pressing..." className={inp} />
+              </Field>
+              <Field label="Medical Conditions (if relevant)">
+                <input name="medicalConditions" defaultValue={a.medicalConditions} placeholder="e.g. hypertension, PCOS, diabetes, thyroid..." className={inp} />
+              </Field>
+              <Field label="Current Medications">
+                <input name="medications" defaultValue={a.medications} placeholder="e.g. metformin, thyroid meds... (optional)" className={inp} />
+              </Field>
+            </div>
+
+            {/* ── 7. Coach Notes ── */}
+            <div className="bg-[#1a1919] border border-white/5 rounded-3xl p-6 space-y-4">
+              <SectionHeader icon="fa-comment-dots" title="Anything Else?" subtitle="Notes for your coach" />
+              <Field label="Additional Notes">
+                <textarea name="additionalNotes" defaultValue={a.additionalNotes} placeholder="Anything else your coach should know — past attempts, lifestyle constraints, preferences..." className={`${inp} min-h-[100px]`}></textarea>
+              </Field>
+            </div>
+
+            <button type="submit" disabled={saving} className="action-btn w-full text-base py-4">
+              {saving ? <><i className="fa-solid fa-spinner fa-spin mr-2"></i>Submitting...</> : <><i className="fa-solid fa-paper-plane mr-2"></i>Submit Intake Form</>}
+            </button>
           </form>
         </div>
       );
@@ -1798,7 +2054,7 @@
       const [flash, setFlash] = useState({ err: '', msg: '' });
       useEffect(() => { if (flash.err || flash.msg) { const timer = setTimeout(() => setFlash({ err: '', msg: '' }), 5000); return () => clearTimeout(timer); } }, [flash]);
       useEffect(() => { api('/api/me').then(res => setMe(res.user)).catch(() => setMe(null)); }, []);
-      const handlePasswordReset = async (e) => { e.preventDefault(); try { await api('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ newPassword: e.target.newPassword.value }) }); setMe({ ...me, mustChangePassword: false }); setFlash({ msg: "Your password has been securely updated." }); } catch (err) { setFlash({ err: err.message || "Failed to update password." }); } };
+      const handlePasswordReset = async (e) => { e.preventDefault(); try { await api('/api/auth/password', { method: 'POST', body: JSON.stringify({ newPassword: e.target.newPassword.value }) }); setMe({ ...me, mustChangePassword: false }); setFlash({ msg: "Your password has been securely updated." }); } catch (err) { setFlash({ err: err.message || "Failed to update password." }); } };
       if (me === undefined) return <div className="min-h-screen bg-[#060d18] flex items-center justify-center"><i className="fa-solid fa-spinner fa-spin text-4xl text-[#6bff8f]"></i></div>;
       return (
         <React.Fragment>
