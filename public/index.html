@@ -557,7 +557,7 @@
       );
     };
 
-    const ClientDietView = ({ appData, setFlash }) => {
+    const ClientDietView = ({ appData, setFlash, onSaved }) => {
       const [customFood, setCustomFood] = useState("");
       const [selectedAiFood, setSelectedAiFood] = useState("");
       const [isCustom, setIsCustom] = useState(false);
@@ -580,50 +580,40 @@
       const carbs = planData?.macros?.carbs || planData?.nutrition?.carbs || "N/A";
       const fats = planData?.macros?.fats || planData?.nutrition?.fats || "N/A";
       
+      // Build food options ONLY from mealOptions - no more leaking exercise/supplement strings
       const aiFoodOptions = useMemo(() => {
-        if (!planData) return [];
-        const opts = new Map(); // Using Map to store label -> macro data
-
-        const addOption = (label, data = {}) => {
-          if (typeof label !== 'string') return;
-          const cleaned = label.replace(/\s+/g, ' ').trim();
-          if (cleaned.length < 3 || cleaned.length > 140 || cleaned.toLowerCase().includes('weekly meal structure')) return;
-          opts.set(cleaned, {
-             label: cleaned,
-             calories: data.calories || 0,
-             protein: data.protein || 0,
-             carbs: data.carbs || 0,
-             fat: data.fat || data.fats || 0
-          });
-        };
-
-        const extractStrings = (node) => {
-          if (node == null) return;
-          if (typeof node === 'string') {
-            let str = node.trim();
-            if (str.toLowerCase().startsWith('options:')) str = str.slice(8).trim();
-            if ((str.startsWith('[') && str.endsWith(']')) || (str.startsWith('{') && str.endsWith('}'))) {
-              try { extractStrings(JSON.parse(str)); return; } catch {}
+        if (!planData?.mealOptions || !Array.isArray(planData.mealOptions)) return [];
+        const groups = [];
+        planData.mealOptions.forEach(mealGroup => {
+          const groupLabel = String(mealGroup.meal || mealGroup.name || 'Meal').trim();
+          const rawOptions = mealGroup.options || mealGroup.items || mealGroup.foods || [];
+          const optionsList = Array.isArray(rawOptions) ? rawOptions : [];
+          const items = [];
+          optionsList.forEach(opt => {
+            let label = '';
+            let cals = 0, prot = 0, carb = 0, fat = 0;
+            if (typeof opt === 'string') {
+              label = opt.trim();
+            } else if (typeof opt === 'object' && opt !== null) {
+              label = String(opt.label || opt.name || opt.food || opt.option || '').trim();
+              cals  = Number(opt.calories || 0);
+              prot  = Number(opt.protein  || 0);
+              carb  = Number(opt.carbs    || 0);
+              fat   = Number(opt.fat || opt.fats || 0);
             }
-            addOption(str);
-            return;
-          }
-          if (Array.isArray(node)) {
-            node.forEach(extractStrings);
-            return;
-          }
-          if (typeof node === 'object') {
-            const label = node.label || node.food || node.option || node.title || node.name;
-            if (label) addOption(label, node);
-            Object.entries(node).forEach(([k, v]) => {
-              if (!k.toLowerCase().includes('weekly meal')) extractStrings(v);
-            });
-          }
-        };
-
-        extractStrings(planData.nutrition ? { ...planData, ...planData.nutrition } : planData);
-        return Array.from(opts.values());
+            if (label.length >= 3 && label.length <= 160) {
+              items.push({ label, calories: cals, protein: prot, carbs: carb, fat });
+            }
+          });
+          if (items.length > 0) groups.push({ groupLabel, items });
+        });
+        return groups;
       }, [planData]);
+
+      // Flat list for lookup when user selects an option
+      const aiFoodFlat = useMemo(() =>
+        aiFoodOptions.flatMap(g => g.items),
+      [aiFoodOptions]);
 
       const handleAddFood = (e) => {
         e.preventDefault();
@@ -632,7 +622,7 @@
            setLoggedFoods([...loggedFoods, { name: customFood, type: 'custom', calories: 0, protein: 0 }]);
            setCustomFood("");
         } else {
-           const match = aiFoodOptions.find(o => o.label === selectedAiFood);
+           const match = aiFoodFlat.find(o => o.label === selectedAiFood);
            if (!match) return;
            setLoggedFoods([...loggedFoods, { name: match.label, type: 'ai', calories: match.calories, protein: match.protein }]);
            setSelectedAiFood("");
@@ -650,6 +640,7 @@
             body: JSON.stringify({ meals: { loggedFoods }, workout: existingWorkout })
           });
           setFlash({ msg: "Diet log saved successfully!" });
+          if (onSaved) onSaved(); // ← refresh home page calorie bars
         } catch (err) { setFlash({ err: err.message }); }
         setSaving(false);
       };
@@ -700,13 +691,18 @@
                 }}
                 className="bg-[#262626] border-white/10 text-white text-sm cursor-pointer"
               >
-                <option value="">Select a meal</option>
-                {aiFoodOptions.map((opt) => (
-                  <option key={opt.label} value={opt.label}>
-                    {opt.label.length > 55 ? `${opt.label.slice(0, 55)}...` : opt.label}
-                  </option>
+                <option value="">— Pick a meal from your plan —</option>
+                {aiFoodOptions.map((group) => (
+                  <optgroup key={group.groupLabel} label={`🍽 ${group.groupLabel}`}>
+                    {group.items.map((opt) => (
+                      <option key={opt.label} value={opt.label}>
+                        {opt.label.length > 55 ? `${opt.label.slice(0, 55)}…` : opt.label}
+                        {opt.calories > 0 ? ` (${opt.calories} kcal)` : ''}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
-                <option value="custom">Custom food entry</option>
+                <option value="custom">✏️ Custom food entry</option>
               </select>
 
               {isCustom && (
@@ -767,7 +763,13 @@
       const todayWorkout = exercisesRaw.map((ex, i) => {
         const isObj = typeof ex === 'object' && ex !== null;
         const name = isObj ? (ex.name || ex.exercise || "Unknown Exercise") : String(ex);
-        const isCardio = /run|jog|treadmill|sprint|bike|cycle|row|cardio|walk|elliptical|stair|swim|step/i.test(name);
+        // If the exercise has sets or reps data, it is definitively a strength exercise
+        const isCardio = (() => {
+          if (isObj && (ex.sets != null || ex.reps != null)) return false;
+          // Only match explicit cardio — do NOT match ambiguous words like "row" or "step"
+          return /\b(running|jogging|treadmill|sprinting|cycling|stationary bike|cardio session|brisk walk|walking|elliptical|swimming|swim laps|jump rope|skipping rope|stair climber|hiit session|rower machine|air bike|assault bike)\b/i.test(name)
+              || /^(cardio|run |jog |walk |swim )/i.test(name);
+        })();
         return {
            id: i, name, type: isCardio ? "cardio" : "strength", 
            targetSets: isObj ? (ex.sets || 3) : 3, 
@@ -947,8 +949,8 @@
             {activeTab === 'home' && <ClientDashboard appData={appData} setActiveTab={setActiveTab} />}
             {activeTab === 'intake' && <ClientIntakeView appData={appData} setFlash={setFlash} />}
             {activeTab === 'plan' && <ClientPlanView appData={appData} />}
-            {activeTab === 'diet' && <ClientDietView appData={appData} setFlash={setFlash} />}
-            {activeTab === 'workout' && <ClientWorkoutView appData={appData} setFlash={setFlash} />}
+            {activeTab === 'diet' && <ClientDietView appData={appData} setFlash={setFlash} onSaved={fetchBootstrap} />}
+            {activeTab === 'workout' && <ClientWorkoutView appData={appData} setFlash={setFlash} onSaved={fetchBootstrap} />}
             {activeTab === 'checkin' && <ClientCheckinView setFlash={setFlash} />}
           </main>
 
@@ -1020,25 +1022,385 @@
     const AdminClientDetail = ({ client, onBack, setFlash }) => {
       const [details, setDetails] = useState(null);
       const [generatingPlan, setGeneratingPlan] = useState(false);
-      const [activeTab, setActiveTab] = useState('plan'); 
-      const fetchDetails = async () => { try { const res = await api(`/api/admin/clients/${client.id}`); setDetails(res); } catch (err) { setFlash({ err: "Failed to load details." }); } };
+      const [activeTab, setActiveTab] = useState('plan');
+      const [planViewTab, setPlanViewTab] = useState('workout');
+
+      const fetchDetails = async () => {
+        try { const res = await api(`/api/admin/clients/${client.id}`); setDetails(res); }
+        catch (err) { setFlash({ err: "Failed to load details." }); }
+      };
       useEffect(() => { fetchDetails(); }, [client.id]);
-      const handleGeneratePlan = async () => { setGeneratingPlan(true); setFlash({ msg: "Initializing AI Agents..." }); try { await api('/api/admin/plans/generate', { method: 'POST', body: JSON.stringify({ client_id: client.id }) }); setFlash({ msg: "AI Plan generated!" }); fetchDetails(); } catch (err) { setFlash({ err: err.message }); } setGeneratingPlan(false); };
-      const handlePublishPlan = async (planId) => { try { await api(`/api/admin/plans/${planId}/publish`, { method: 'POST' }); setFlash({ msg: "Plan published to client!" }); fetchDetails(); } catch (err) { setFlash({ err: err.message }); } };
+
+      // ✅ FIXED: correct API endpoint for generating plan
+      const handleGeneratePlan = async () => {
+        setGeneratingPlan(true);
+        setFlash({ msg: "⚙️ AI Agents working — this takes ~30 seconds..." });
+        try {
+          await api(`/api/admin/clients/${client.id}/generate-plan`, { method: 'POST' });
+          setFlash({ msg: "✅ AI Plan generated!" });
+          fetchDetails();
+        } catch (err) { setFlash({ err: err.message }); }
+        setGeneratingPlan(false);
+      };
+
+      // ✅ FIXED: correct API endpoint for publishing plan
+      const handlePublishPlan = async () => {
+        try {
+          await api(`/api/admin/clients/${client.id}/publish-plan`, { method: 'POST' });
+          setFlash({ msg: "🚀 Plan published to client!" });
+          fetchDetails();
+        } catch (err) { setFlash({ err: err.message }); }
+      };
+
+      const handleUnpublishPlan = async () => {
+        try {
+          await api(`/api/admin/clients/${client.id}/publish-plan`, { method: 'POST', body: JSON.stringify({ publish: false }) });
+          setFlash({ msg: "Plan moved back to draft." });
+          fetchDetails();
+        } catch (err) { setFlash({ err: err.message }); }
+      };
+
       if (!details) return <div className="text-center p-10"><i className="fa-solid fa-spinner fa-spin text-3xl text-[#6bff8f]"></i></div>;
-      const noLogs = (!details.daily_logs || details.daily_logs.length === 0) && (!details.checkins || details.checkins.length === 0);
+
+      // ✅ FIXED: use effectivePlan (the merged generated+edited plan)
+      const ep = details.plan?.effectivePlan || details.plan?.generated_json || null;
+      const workoutDays = ep?.workoutSplit || [];
+      const mealGroups = ep?.mealOptions || [];
+
+      // ✅ FIXED: API returns dailyLog (singular) not daily_logs
+      const hasLog = !!details.dailyLog;
+      const hasCheckins = details.checkins && details.checkins.length > 0;
+      const noActivity = !hasLog && !hasCheckins;
+
       return (
         <div className="space-y-6">
-          <button onClick={onBack} className="text-xs text-[#7a9abf] hover:text-white flex items-center gap-2 mb-4"><i className="fa-solid fa-arrow-left"></i> Back</button>
-          <div className="card flex justify-between items-center"><div><h2 className="text-2xl font-black text-white">{client.full_name}</h2><p className="text-sm text-[#7a9abf] font-mono">@{client.username}</p></div><div className="text-right"><div className="text-[10px] text-gray-400 uppercase tracking-widest">Status</div><div className="text-[#00cba8] font-bold text-sm">{client.status}</div></div></div>
-          <div className="flex gap-6 border-b border-[#1a2e48]"><button onClick={() => setActiveTab('plan')} className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'plan' ? 'border-[#6bff8f] text-[#6bff8f]' : 'border-transparent text-gray-500 hover:text-white'}`}>Overview & Plan</button><button onClick={() => setActiveTab('logs')} className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeTab === 'logs' ? 'border-[#6bff8f] text-[#6bff8f]' : 'border-transparent text-gray-500 hover:text-white'}`}>Daily Logs & Check-ins</button></div>
+          <button onClick={onBack} className="text-xs text-[#7a9abf] hover:text-white flex items-center gap-2 mb-4">
+            <i className="fa-solid fa-arrow-left"></i> Back to Roster
+          </button>
+
+          {/* Client header card */}
+          <div className="card flex justify-between items-center">
+            <div>
+              <h2 className="text-2xl font-black text-white">{client.full_name}</h2>
+              <p className="text-sm text-[#7a9abf] font-mono">@{client.username}</p>
+            </div>
+            <div className="text-right">
+              <div className="text-[10px] text-gray-400 uppercase tracking-widest">Status</div>
+              <div className="text-[#00cba8] font-bold text-sm capitalize">{client.status}</div>
+            </div>
+          </div>
+
+          {/* Tab navigation */}
+          <div className="flex gap-6 border-b border-[#1a2e48]">
+            {['plan', 'logs'].map(t => (
+              <button key={t} onClick={() => setActiveTab(t)}
+                className={`pb-3 text-sm font-bold border-b-2 transition-colors capitalize ${activeTab === t ? 'border-[#6bff8f] text-[#6bff8f]' : 'border-transparent text-gray-500 hover:text-white'}`}>
+                {t === 'plan' ? 'Overview & Plan' : 'Daily Logs & Check-ins'}
+              </button>
+            ))}
+          </div>
+
+          {/* ── Plan tab ── */}
           {activeTab === 'plan' && (
-            <div className="grid md:grid-cols-2 gap-6">
-              <div className="card"><h3 className="text-lg font-bold text-white mb-4"><i className="fa-solid fa-clipboard-list text-[#6bff8f] mr-2"></i> Intake Form</h3>{!details.intake ? <p className="text-sm text-gray-400">Not submitted yet.</p> : (<pre className="bg-[#0b1628] p-3 rounded-lg text-xs font-mono text-gray-300 border border-[#1a2e48] overflow-auto max-h-[300px]">{JSON.stringify(details.intake.answers_json, null, 2)}</pre>)}</div>
-              <div className="card"><h3 className="text-lg font-bold text-white mb-4"><i className="fa-solid fa-brain text-[#ffc940] mr-2"></i> Coaching Plan</h3>{!details.plan ? (<div className="text-center py-6"><p className="text-sm text-gray-400 mb-4">No plan exists.</p><button onClick={handleGeneratePlan} disabled={!details.intake || generatingPlan} className="action-btn w-full">{generatingPlan ? 'Generating...' : 'Generate AI Plan'}</button></div>) : (<div className="space-y-4"><div className="flex justify-between items-center bg-[#0b1628] p-3 rounded-lg border border-[#1a2e48]"><span className="text-xs font-bold text-gray-400 uppercase">Status</span><span className={`text-xs font-bold px-2 py-1 rounded ${details.plan.status === 'published' ? 'bg-[#00cba8]/20 text-[#00cba8]' : 'bg-[#ffc940]/20 text-[#ffc940]'}`}>{details.plan.status}</span></div><p className="text-xs text-gray-400 mb-2">Plan Details (Raw JSON):</p><div className="bg-[#0b1628] border border-[#1a2e48] p-3 rounded-lg text-xs font-mono text-gray-300 max-h-[250px] overflow-y-auto whitespace-pre-wrap">{JSON.stringify(details.plan.generated_json, null, 2)}</div>{details.plan.status === 'draft' && (<button onClick={() => handlePublishPlan(details.plan.id)} className="action-btn w-full mt-2"><i className="fa-solid fa-paper-plane mr-2"></i> Publish Plan</button>)}</div>)}</div>
+            <div className="space-y-6">
+              {/* Intake summary */}
+              <div className="card">
+                <h3 className="text-lg font-bold text-white mb-4">
+                  <i className="fa-solid fa-clipboard-list text-[#6bff8f] mr-2"></i> Intake Form
+                </h3>
+                {!details.intake ? (
+                  <p className="text-sm text-gray-400">Client has not submitted their intake form yet.</p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3">
+                    {Object.entries(details.intake.answers_json || {}).map(([k, v]) => (
+                      <div key={k} className="bg-[#0b1628] rounded-xl p-3 border border-[#1a2e48]">
+                        <div className="text-[10px] text-[#ffc940] font-bold uppercase tracking-widest mb-1">{k.replace(/_/g,' ')}</div>
+                        <div className="text-sm text-gray-200">{String(v)}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Plan actions */}
+              <div className="card space-y-4">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-lg font-bold text-white">
+                    <i className="fa-solid fa-brain text-[#ffc940] mr-2"></i> Coaching Plan
+                  </h3>
+                  {details.plan && (
+                    <span className={`text-xs font-bold px-3 py-1 rounded-full border ${details.plan.status === 'published' ? 'bg-[#00cba8]/10 text-[#00cba8] border-[#00cba8]/30' : 'bg-[#ffc940]/10 text-[#ffc940] border-[#ffc940]/30'}`}>
+                      {details.plan.status === 'published' ? '🟢 Published' : '🟡 Draft'}
+                    </span>
+                  )}
+                </div>
+
+                {/* Generate / Regenerate buttons */}
+                <div className="flex gap-3">
+                  <button onClick={handleGeneratePlan} disabled={!details.intake || generatingPlan}
+                    className="action-btn flex-1 text-sm py-3">
+                    <i className={`fa-solid ${generatingPlan ? 'fa-spinner fa-spin' : (details.plan ? 'fa-rotate-right' : 'fa-bolt')} mr-2`}></i>
+                    {generatingPlan ? 'Generating…' : (details.plan ? 'Regenerate Plan' : 'Generate AI Plan')}
+                  </button>
+                  {details.plan && (
+                    details.plan.status === 'draft'
+                      ? <button onClick={handlePublishPlan} className="ghost-btn flex-1 text-sm py-3 border-[#6bff8f]/40 text-[#6bff8f]">
+                          <i className="fa-solid fa-paper-plane mr-2"></i> Publish to Client
+                        </button>
+                      : <button onClick={handleUnpublishPlan} className="ghost-btn flex-1 text-sm py-3 text-gray-400">
+                          <i className="fa-solid fa-eye-slash mr-2"></i> Unpublish
+                        </button>
+                  )}
+                </div>
+
+                {!details.intake && (
+                  <p className="text-xs text-[#ffc940] bg-[#ffc940]/10 rounded-lg px-3 py-2">
+                    <i className="fa-solid fa-triangle-exclamation mr-2"></i>
+                    Client must submit their intake form before a plan can be generated.
+                  </p>
+                )}
+              </div>
+
+              {/* Structured plan view */}
+              {ep && (
+                <div className="card space-y-5">
+                  {/* Profile summary */}
+                  {ep.profileSummary && (
+                    <div className="bg-[#0b1628] rounded-xl p-4 border border-[#6bff8f]/20">
+                      <div className="text-[10px] text-[#6bff8f] font-bold uppercase tracking-widest mb-2">Profile Summary</div>
+                      <p className="text-sm text-gray-300 leading-relaxed">{ep.profileSummary}</p>
+                    </div>
+                  )}
+
+                  {/* Calorie & macros strip */}
+                  <div className="grid grid-cols-4 gap-3">
+                    {[
+                      { label: 'Calories', val: ep.calorieTarget, color: '#ffc940' },
+                      { label: 'Protein',  val: ep.macros?.protein, color: '#00cba8' },
+                      { label: 'Carbs',    val: ep.macros?.carbs,   color: '#6ba4ff' },
+                      { label: 'Fat',      val: ep.macros?.fat || ep.macros?.fats, color: '#ff6b6b' },
+                    ].map(m => (
+                      <div key={m.label} className="bg-[#0b1628] rounded-xl p-3 text-center border border-white/5">
+                        <div className="text-sm font-black" style={{ color: m.color }}>{m.val || '—'}</div>
+                        <div className="text-[9px] text-gray-500 uppercase tracking-widest mt-1">{m.label}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Plan inner tabs: Workout / Diet */}
+                  <div className="flex gap-2 p-1 bg-[#060d18] rounded-xl">
+                    <button type="button" onClick={() => setPlanViewTab('workout')}
+                      className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${planViewTab === 'workout' ? 'bg-[#6bff8f] text-[#003a12]' : 'text-gray-400 hover:text-white'}`}>
+                      <i className="fa-solid fa-dumbbell mr-1"></i> Workout Plan
+                    </button>
+                    <button type="button" onClick={() => setPlanViewTab('diet')}
+                      className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${planViewTab === 'diet' ? 'bg-[#ffc940] text-[#003a12]' : 'text-gray-400 hover:text-white'}`}>
+                      <i className="fa-solid fa-utensils mr-1"></i> Diet Plan
+                    </button>
+                  </div>
+
+                  {/* Workout split */}
+                  {planViewTab === 'workout' && (
+                    <div className="space-y-3">
+                      {workoutDays.length === 0 ? (
+                        <p className="text-sm text-gray-400">No workout split found in plan.</p>
+                      ) : workoutDays.map((day, i) => (
+                        <div key={i} className="bg-[#0b1628] rounded-xl p-4 border border-white/5">
+                          <div className="text-sm font-bold text-[#6bff8f] mb-2">{day.day || `Day ${i+1}`}</div>
+                          {day.warmup && (
+                            <div className="text-xs text-[#ffc940] mb-2">
+                              <i className="fa-solid fa-fire mr-1"></i>
+                              Warm-up: {Array.isArray(day.warmup) ? day.warmup.join(' • ') : day.warmup}
+                            </div>
+                          )}
+                          <ul className="text-sm text-gray-300 space-y-1">
+                            {(Array.isArray(day.exercises) ? day.exercises : []).map((ex, j) => {
+                              const name = typeof ex === 'string' ? ex : (ex?.name || ex?.exercise || 'Exercise');
+                              const detail = typeof ex === 'object' && ex !== null
+                                ? [ex.sets && `${ex.sets} sets`, ex.reps && `${ex.reps} reps`, ex.duration].filter(Boolean).join(' × ')
+                                : '';
+                              return (
+                                <li key={j} className="flex justify-between items-center gap-2">
+                                  <span>• {name}</span>
+                                  {detail && <span className="text-[10px] text-[#00cba8] font-mono shrink-0">{detail}</span>}
+                                </li>
+                              );
+                            })}
+                          </ul>
+                          {day.cooldown && (
+                            <div className="text-xs text-[#00cba8] mt-2">
+                              <i className="fa-solid fa-wind mr-1"></i>
+                              Cool-down: {Array.isArray(day.cooldown) ? day.cooldown.join(' • ') : day.cooldown}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                      {ep.periodisation && (
+                        <div className="bg-[#0b1628] rounded-xl p-4 border border-white/5">
+                          <div className="text-[10px] text-[#ffc940] font-bold uppercase tracking-widest mb-1">Periodisation</div>
+                          <p className="text-xs text-gray-300">{ep.periodisation}</p>
+                        </div>
+                      )}
+                      {ep.progressionProtocol && (
+                        <div className="bg-[#0b1628] rounded-xl p-4 border border-white/5">
+                          <div className="text-[10px] text-[#ffc940] font-bold uppercase tracking-widest mb-1">Progression Protocol</div>
+                          <p className="text-xs text-gray-300">{ep.progressionProtocol}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Diet / meal options */}
+                  {planViewTab === 'diet' && (
+                    <div className="space-y-4">
+                      {mealGroups.length === 0 ? (
+                        <p className="text-sm text-gray-400">No meal options found in plan.</p>
+                      ) : mealGroups.map((mg, i) => (
+                        <div key={i} className="bg-[#0b1628] rounded-xl p-4 border border-[#ffc940]/15">
+                          <div className="text-sm font-bold text-[#ffc940] mb-3">{mg.meal || mg.name || `Meal ${i+1}`}</div>
+                          <div className="space-y-2">
+                            {(mg.options || mg.items || []).map((opt, j) => {
+                              const label = typeof opt === 'string' ? opt : (opt?.label || opt?.name || opt?.food || '');
+                              const macros = typeof opt === 'object' ? [
+                                opt.calories && `${opt.calories} kcal`,
+                                opt.protein  && `${opt.protein}g P`,
+                                opt.carbs    && `${opt.carbs}g C`,
+                                (opt.fat||opt.fats) && `${opt.fat||opt.fats}g F`,
+                              ].filter(Boolean).join(' · ') : '';
+                              return (
+                                <div key={j} className="flex justify-between items-start gap-3 py-2 border-b border-white/5 last:border-0">
+                                  <span className="text-sm text-gray-200">• {label}</span>
+                                  {macros && <span className="text-[10px] text-[#00cba8] font-mono shrink-0">{macros}</span>}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                      {ep.weeklyMealStructure && Array.isArray(ep.weeklyMealStructure) && (
+                        <div className="bg-[#0b1628] rounded-xl p-4 border border-white/5">
+                          <div className="text-[10px] text-[#ffc940] font-bold uppercase tracking-widest mb-2">Weekly Meal Structure</div>
+                          <ul className="text-xs text-gray-300 space-y-1">
+                            {ep.weeklyMealStructure.map((s, i) => <li key={i}>• {s}</li>)}
+                          </ul>
+                        </div>
+                      )}
+                      {ep.supplements && ep.supplements.length > 0 && (
+                        <div className="bg-[#0b1628] rounded-xl p-4 border border-white/5">
+                          <div className="text-[10px] text-[#ffc940] font-bold uppercase tracking-widest mb-2">Supplements</div>
+                          <ul className="text-xs text-gray-300 space-y-1">
+                            {ep.supplements.map((s, i) => <li key={i}>• {s}</li>)}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Milestones & cautions */}
+                  {(ep.progressMilestones?.length > 0 || ep.cautions?.length > 0) && (
+                    <div className="grid grid-cols-2 gap-3 pt-2">
+                      {ep.progressMilestones?.length > 0 && (
+                        <div className="bg-[#0b1628] rounded-xl p-4 border border-[#6bff8f]/15">
+                          <div className="text-[10px] text-[#6bff8f] font-bold uppercase tracking-widest mb-2">Milestones</div>
+                          <ul className="text-xs text-gray-300 space-y-1">{ep.progressMilestones.map((m,i) => <li key={i}>• {m}</li>)}</ul>
+                        </div>
+                      )}
+                      {ep.cautions?.length > 0 && (
+                        <div className="bg-[#0b1628] rounded-xl p-4 border border-red-500/15">
+                          <div className="text-[10px] text-red-400 font-bold uppercase tracking-widest mb-2">Cautions</div>
+                          <ul className="text-xs text-gray-300 space-y-1">{ep.cautions.map((c,i) => <li key={i}>⚠ {c}</li>)}</ul>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
-          {activeTab === 'logs' && (<div className="card"><h3 className="text-lg font-bold text-white mb-4"><i className="fa-solid fa-chart-line text-[#00cba8] mr-2"></i> Client Progress Feed</h3><p className="text-sm text-gray-400 mb-6">View raw diet, workout, and check-in entries submitted by the client.</p><div className="bg-[#0b1628] border border-[#1a2e48] p-4 rounded-xl max-h-[500px] overflow-auto">{noLogs ? (<p className="text-xs text-gray-500 text-center py-4">No activity logged yet.</p>) : (<pre className="text-xs font-mono text-gray-300 whitespace-pre-wrap">{JSON.stringify({ dailyLogs: details.daily_logs, checkins: details.checkins }, null, 2)}</pre>)}</div></div>)}
+
+          {/* ── Logs tab ── */}
+          {activeTab === 'logs' && (
+            <div className="card space-y-6">
+              <h3 className="text-lg font-bold text-white">
+                <i className="fa-solid fa-chart-line text-[#00cba8] mr-2"></i> Client Activity
+              </h3>
+
+              {noActivity ? (
+                <p className="text-sm text-gray-400 text-center py-6">No activity recorded yet.</p>
+              ) : (
+                <>
+                  {/* Most recent daily log */}
+                  {hasLog && (() => {
+                    const dl = details.dailyLog;
+                    const foods = dl.meals_json?.loggedFoods || [];
+                    const totalCals = foods.reduce((s,f) => s + (Number(f.calories)||0), 0);
+                    const totalPro  = foods.reduce((s,f) => s + (Number(f.protein)||0), 0);
+                    return (
+                      <div>
+                        <div className="text-xs text-[#ffc940] font-bold uppercase tracking-widest mb-3">
+                          Latest Log — {dl.log_date}
+                        </div>
+                        <div className="grid grid-cols-3 gap-3 mb-4">
+                          <div className="bg-[#0b1628] rounded-xl p-3 text-center border border-white/5">
+                            <div className="text-sm font-black text-[#ffc940]">{totalCals} kcal</div>
+                            <div className="text-[9px] text-gray-500 uppercase mt-1">Consumed</div>
+                          </div>
+                          <div className="bg-[#0b1628] rounded-xl p-3 text-center border border-white/5">
+                            <div className="text-sm font-black text-[#00cba8]">{totalPro}g</div>
+                            <div className="text-[9px] text-gray-500 uppercase mt-1">Protein</div>
+                          </div>
+                          <div className="bg-[#0b1628] rounded-xl p-3 text-center border border-white/5">
+                            <div className="text-sm font-black text-[#6bff8f]">{dl.workout_json?.completed ? '✓' : '–'}</div>
+                            <div className="text-[9px] text-gray-500 uppercase mt-1">Workout</div>
+                          </div>
+                        </div>
+                        {foods.length > 0 && (
+                          <div className="bg-[#0b1628] rounded-xl p-3 border border-white/5">
+                            <div className="text-[10px] text-gray-400 font-bold uppercase mb-2">Foods Logged</div>
+                            <ul className="text-xs text-gray-300 space-y-1">
+                              {foods.map((f, i) => (
+                                <li key={i} className="flex justify-between">
+                                  <span>{f.name}</span>
+                                  <span className="text-gray-500 font-mono">{f.calories > 0 ? `${f.calories} kcal` : 'custom'}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {dl.notes && (
+                          <div className="mt-3 bg-[#0b1628] rounded-xl p-3 border border-white/5">
+                            <div className="text-[10px] text-gray-400 font-bold uppercase mb-1">Client Notes</div>
+                            <p className="text-xs text-gray-300">{dl.notes}</p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  {/* Check-ins */}
+                  {hasCheckins && (
+                    <div>
+                      <div className="text-xs text-[#6bff8f] font-bold uppercase tracking-widest mb-3">Check-in History</div>
+                      <div className="space-y-3">
+                        {details.checkins.map((c, i) => (
+                          <div key={i} className="bg-[#0b1628] rounded-xl p-3 border border-white/5 grid grid-cols-4 gap-2">
+                            <div className="col-span-4 text-[10px] text-gray-500 font-mono mb-1">{c.checkin_date}</div>
+                            {[['Weight', c.weight, 'kg'], ['Body Fat', c.body_fat, '%'], ['Waist', c.waist, 'cm'], ['Hips', c.hips, 'cm']].map(([l,v,u]) => v != null && (
+                              <div key={l} className="text-center">
+                                <div className="text-sm font-bold text-white">{v}{u}</div>
+                                <div className="text-[9px] text-gray-500">{l}</div>
+                              </div>
+                            ))}
+                            {c.notes && <p className="col-span-4 text-xs text-gray-400 border-t border-white/5 pt-2 mt-1">{c.notes}</p>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </div>
       );
     };
