@@ -2054,7 +2054,7 @@
       const [flash, setFlash] = useState({ err: '', msg: '' });
       useEffect(() => { if (flash.err || flash.msg) { const timer = setTimeout(() => setFlash({ err: '', msg: '' }), 5000); return () => clearTimeout(timer); } }, [flash]);
       useEffect(() => { api('/api/me').then(res => setMe(res.user)).catch(() => setMe(null)); }, []);
-      const handlePasswordReset = async (e) => { e.preventDefault(); try { await api('/api/auth/password', { method: 'POST', body: JSON.stringify({ newPassword: e.target.newPassword.value }) }); setMe({ ...me, mustChangePassword: false }); setFlash({ msg: "Your password has been securely updated." }); } catch (err) { setFlash({ err: err.message || "Failed to update password." }); } };
+      const handlePasswordReset = async (e) => { e.preventDefault(); try { await api('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ newPassword: e.target.newPassword.value }) }); setMe({ ...me, mustChangePassword: false }); setFlash({ msg: "Your password has been securely updated." }); } catch (err) { setFlash({ err: err.message || "Failed to update password." }); } };
       if (me === undefined) return <div className="min-h-screen bg-[#060d18] flex items-center justify-center"><i className="fa-solid fa-spinner fa-spin text-4xl text-[#6bff8f]"></i></div>;
       return (
         <React.Fragment>
