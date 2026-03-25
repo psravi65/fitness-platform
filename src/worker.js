@@ -120,15 +120,18 @@ async function handleApi(request, env, ctx, url) {
     return withCookie(json({ ok: true }), clearSessionCookie(env));
   }
 
-  if (url.pathname === "/api/auth/change-password" && method === "POST") {
+ if (url.pathname === "/api/auth/change-password" && method === "POST") {
     assertAuthenticated(session);
     const body = await readJson(request);
     const currentPassword = String(body.currentPassword || "");
     const newPassword = String(body.newPassword || "");
     if (newPassword.length < 8) return json({ error: "New password must be at least 8 characters." }, 400);
-    const row = await env.DB.prepare(`SELECT password_hash FROM users WHERE id = ?`).bind(session.user.id).first();
-    const valid = await verifyPassword(currentPassword, row.password_hash);
-    if (!valid) return json({ error: "Current password is incorrect." }, 401);
+    const row = await env.DB.prepare(`SELECT password_hash, must_change_password FROM users WHERE id = ?`).bind(session.user.id).first();
+    // First-time login: skip current password check — they only have a temp password
+    if (!row.must_change_password) {
+      const valid = await verifyPassword(currentPassword, row.password_hash);
+      if (!valid) return json({ error: "Current password is incorrect." }, 401);
+    }
     const nextHash = await hashPassword(newPassword);
     await env.DB.prepare(`UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?`)
       .bind(nextHash, session.user.id)
