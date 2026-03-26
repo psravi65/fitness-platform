@@ -920,14 +920,14 @@ async function callGeminiAgent(env, agentName, systemPrompt, planJson, intakeJso
 
   try {
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL || "gemini-2.5-flash"}:generateContent?key=${env.GEMINI_API_KEY}`;
-    const res = await fetch(apiUrl, {
+    const res = await fetchWithTimeout(apiUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         generationConfig: { responseMimeType: "application/json" }
       })
-    });
+    }, Number(env.GEMINI_TIMEOUT_MS) || 30000);
     if (!res.ok) {
       return { status: "skipped", reason: `Agent API error: HTTP ${res.status}`, issues: [], suggestions: [] };
     }
@@ -1085,14 +1085,14 @@ async function refinePlanWithAgentFeedback(env, intake, plan, agentReviews, prog
 
   try {
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL || "gemini-2.5-flash"}:generateContent?key=${env.GEMINI_API_KEY}`;
-    const res = await fetch(apiUrl, {
+    const res = await fetchWithTimeout(apiUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         generationConfig: { responseMimeType: "application/json" }
       })
-    });
+    }, Number(env.GEMINI_TIMEOUT_MS) || 30000);
     if (!res.ok) return plan;
     const data = await res.json();
     const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("") || "";
@@ -1154,7 +1154,7 @@ async function generatePlanFromIntake(env, intake, progressContext = {}, househo
   ].join("\n");
 
   const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL || "gemini-2.5-flash"}:generateContent?key=${env.GEMINI_API_KEY}`;
-  const res = await fetch(apiUrl, {
+  const res = await fetchWithTimeout(apiUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -1163,7 +1163,7 @@ async function generatePlanFromIntake(env, intake, progressContext = {}, househo
         responseMimeType: "application/json"
       }
     })
-  });
+  }, Number(env.GEMINI_TIMEOUT_MS) || 30000);
 
   if (!res.ok) {
     return fallbackPlanFromIntake(intake, {
@@ -1400,6 +1400,13 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function fetchWithTimeout(url, options, timeoutMs = 30000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal })
+    .finally(() => clearTimeout(timer));
+}
+
 class HttpError extends Error {
   constructor(message, status) {
     super(message);
@@ -1494,15 +1501,15 @@ async function sendWelcomeEmail(env, email, fullName, username, tempPassword) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        from: 'GymLog Coaching <onboarding@gymlog.app>', // Update with your domain later
+        from: env.EMAIL_FROM || 'GymLog Coaching <onboarding@gymlog.app>',
         to: email,
         subject: 'Welcome to GymLog! Your Access Details',
         html: `
           <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2>Welcome to the team, ${fullName}! 💪</h2>
+            <h2>Welcome to the team, ${fullName}!</h2>
             <p>Your coach has set up your private GymLog dashboard.</p>
             <div style="background: #f4f4f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
-              <p style="margin: 0 0 10px 0;"><strong>Login URL:</strong> https://your-cloudflare-domain.workers.dev</p>
+              <p style="margin: 0 0 10px 0;"><strong>Login URL:</strong> ${env.APP_URL || 'https://your-cloudflare-domain.workers.dev'}</p>
               <p style="margin: 0 0 10px 0;"><strong>Username:</strong> ${username}</p>
               <p style="margin: 0;"><strong>Temporary Password:</strong> ${tempPassword}</p>
             </div>
