@@ -1318,10 +1318,12 @@
     };
 
     const ClientWorkoutView = ({ appData, setFlash }) => {
-      const [completed, setCompleted] = useState(false);
+      // Mon=0 … Sun=6
+      const todayWeekIdx = (new Date().getDay() + 6) % 7;
       const [saving, setSaving] = useState(false);
-      const [selectedDayIdx, setSelectedDayIdx] = useState(0);
-      
+      const [selectedDayIdx, setSelectedDayIdx] = useState(todayWeekIdx);
+      const [userOverrode, setUserOverrode] = useState(false);
+
       const planData = getPlanData(appData);
       let daysRaw = planData?.workoutSplit || planData?.workout_plan || planData?.workouts || planData?.routine || [];
       let days = [];
@@ -1333,8 +1335,16 @@
           ...(typeof v === 'object' && v !== null && !Array.isArray(v) ? v : { exercises: Array.isArray(v) ? v : [v] })
         }));
       }
-      
-      const currentDay = days[selectedDayIdx] || null;
+
+      // Clamp to valid range (handles plans shorter than 7 days)
+      const safeIdx = days.length > 0 ? selectedDayIdx % days.length : 0;
+      const autoIdx = days.length > 0 ? todayWeekIdx % days.length : 0;
+
+      // Was today's workout already logged?
+      const alreadyLogged = !!(appData?.dailyLog?.workout_json?.completed);
+      const [completed, setCompleted] = useState(alreadyLogged);
+
+      const currentDay = days[safeIdx] || null;
       const rawExercises = currentDay?.exercises || currentDay?.workout || currentDay?.movements;
       const exercisesRaw = Array.isArray(rawExercises) ? rawExercises : (rawExercises ? [rawExercises] : []);
 
@@ -1361,7 +1371,7 @@
         setSaving(true);
         const data = Object.fromEntries(new FormData(e.target).entries());
         data.completed = completed;
-        data.dayLogged = currentDay?.day || `Day ${selectedDayIdx+1}`;
+        data.dayLogged = currentDay?.day || `Day ${safeIdx+1}`;
         try {
           const date = getLocalDate();
           const existingMeals = appData?.dailyLog?.meals_json || {};
@@ -1382,20 +1392,33 @@
         <form onSubmit={handleSaveLog} className="p-5 space-y-6">
           <div>
             <h2 className="text-2xl font-black text-white">Workout Log</h2>
-            <div className="inline-block bg-[#6bff8f]/10 text-[#6bff8f] px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest mt-3">
-              <i className="fa-regular fa-calendar mr-1"></i> {getFormattedDate()}
+            <div className="flex flex-wrap gap-2 mt-3">
+              <div className="inline-block bg-[#6bff8f]/10 text-[#6bff8f] px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest">
+                <i className="fa-regular fa-calendar mr-1"></i> {getFormattedDate()}
+              </div>
+              {alreadyLogged && (
+                <div className="inline-block bg-[#00cba8]/10 text-[#00cba8] px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest">
+                  <i className="fa-solid fa-check mr-1"></i> Logged today
+                </div>
+              )}
             </div>
           </div>
 
           <div className="flex gap-2 overflow-x-auto pb-2 mb-2 scrollbar-hide">
-            {days.map((d, i) => (
-              <button 
-                key={i} type="button" onClick={() => setSelectedDayIdx(i)}
-                className={`whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold transition-colors ${selectedDayIdx === i ? 'bg-[#6bff8f] text-[#003a12]' : 'bg-[#1a1919] text-gray-400 border border-white/5'}`}
-              >
-                {d.day || `Day ${i+1}`}
-              </button>
-            ))}
+            {days.map((d, i) => {
+              const isSelected = safeIdx === i;
+              const isToday = autoIdx === i;
+              return (
+                <button
+                  key={i} type="button"
+                  onClick={() => { setSelectedDayIdx(i); setUserOverrode(true); }}
+                  className={`relative whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold transition-colors flex flex-col items-center gap-0.5 ${isSelected ? 'bg-[#6bff8f] text-[#003a12]' : 'bg-[#1a1919] text-gray-400 border border-white/5'}`}
+                >
+                  {d.day || `Day ${i+1}`}
+                  {isToday && <span className={`text-[8px] font-black uppercase tracking-widest ${isSelected ? 'text-[#003a12]/70' : 'text-[#6bff8f]'}`}>Today</span>}
+                </button>
+              );
+            })}
           </div>
 
           {warmup && (
@@ -1407,7 +1430,12 @@
 
           <div className="space-y-4">
             {todayWorkout.length === 0 ? (
-              <p className="text-sm text-gray-500 italic">Rest day or no exercises planned.</p>
+              <div className="bg-[#1a1919] border border-white/5 rounded-3xl p-8 text-center">
+                <div className="text-4xl mb-3">😴</div>
+                <div className="text-white font-bold text-lg">Rest Day</div>
+                <div className="text-sm text-gray-400 mt-1">No workout scheduled — focus on recovery.</div>
+                {safeIdx === autoIdx && <div className="text-[10px] text-[#6bff8f] mt-3 uppercase tracking-widest font-bold">This is your rest day for today</div>}
+              </div>
             ) : todayWorkout.map((ex) => (
               <div key={ex.id} className="bg-[#1a1919] border border-white/5 rounded-3xl overflow-hidden">
                 <div className="bg-[#262626]/50 p-4 border-b border-white/5 flex justify-between items-center">
