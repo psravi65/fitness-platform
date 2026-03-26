@@ -324,11 +324,13 @@ async function handleApi(request, env, ctx, url) {
   const adminClientMatch = url.pathname.match(/^\/api\/admin\/clients\/([^/]+)$/);
   if (adminClientMatch && method === "GET") {
     assertRole(session, "admin");
+    await assertClientBelongsToGym(env, session, adminClientMatch[1]);
     return json(await getAdminClientDetail(env, adminClientMatch[1]));
   }
 
   if (adminClientMatch && method === "DELETE") {
     assertRole(session, "admin");
+    await assertClientBelongsToGym(env, session, adminClientMatch[1]);
     await env.DB.prepare(`DELETE FROM clients WHERE id = ?`).bind(adminClientMatch[1]).run();
     return json({ ok: true });
   }
@@ -336,6 +338,7 @@ async function handleApi(request, env, ctx, url) {
   const resetPasswordMatch = url.pathname.match(/^\/api\/admin\/clients\/([^/]+)\/reset-password$/);
   if (resetPasswordMatch && method === "POST") {
     assertRole(session, "admin");
+    await assertClientBelongsToGym(env, session, resetPasswordMatch[1]);
     const user = await env.DB.prepare(`SELECT id FROM users WHERE client_id = ? AND role = 'client'`).bind(resetPasswordMatch[1]).first();
     if (!user) return json({ error: "Client user not found." }, 404);
     const tempPassword = generateTempPassword();
@@ -348,6 +351,7 @@ async function handleApi(request, env, ctx, url) {
   const clientIntakeMatch = url.pathname.match(/^\/api\/clients\/([^/]+)\/intake$/);
   if (clientIntakeMatch && method === "POST") {
     assertRole(session, "admin");
+    await assertClientBelongsToGym(env, session, clientIntakeMatch[1]);
     const body = await readJson(request);
     await upsertIntake(env, clientIntakeMatch[1], body.answers || {}, body.complete);
     return json({ ok: true });
@@ -358,11 +362,13 @@ async function handleApi(request, env, ctx, url) {
     assertRole(session, "admin");
     const body = await readJson(request);
     const clientId = householdMatch[1];
+    await assertClientBelongsToGym(env, session, clientId);
     if (body.householdId) {
       const householdId = body.householdId === "new" ? crypto.randomUUID() : body.householdId;
       await env.DB.prepare(`UPDATE clients SET household_id = ? WHERE id = ?`).bind(householdId, clientId).run();
       // If baseMealsOn is set, store it — this client's plan will be used as meal reference
       if (body.baseMealsOn) {
+        await assertClientBelongsToGym(env, session, body.baseMealsOn);
         await env.DB.prepare(`UPDATE clients SET household_id = ? || ':base' WHERE id = ?`).bind(householdId, body.baseMealsOn).run();
       }
     } else {
@@ -374,6 +380,7 @@ async function handleApi(request, env, ctx, url) {
   const intakeEditMatch = url.pathname.match(/^\/api\/admin\/clients\/([^/]+)\/intake-edit$/);
   if (intakeEditMatch && method === "POST") {
     assertRole(session, "admin");
+    await assertClientBelongsToGym(env, session, intakeEditMatch[1]);
     const body = await readJson(request);
     await env.DB.prepare(`UPDATE clients SET status = ? WHERE id = ?`)
       .bind(body.editable ? "intake_open" : "active", intakeEditMatch[1])
@@ -385,6 +392,7 @@ async function handleApi(request, env, ctx, url) {
   if (generatePlanMatch && method === "POST") {
     assertRole(session, "admin");
     const clientId = generatePlanMatch[1];
+    await assertClientBelongsToGym(env, session, clientId);
     const intake = await getLatestIntake(env, clientId);
     if (!intake) return json({ error: "Client intake is required before generating a plan." }, 400);
     const progressContext = await getProgressContext(env, clientId);
@@ -406,6 +414,7 @@ async function handleApi(request, env, ctx, url) {
   if (savePlanMatch && method === "PATCH") {
     assertRole(session, "admin");
     const clientId = savePlanMatch[1];
+    await assertClientBelongsToGym(env, session, clientId);
     const body = await readJson(request);
     const editedPlan = body.editedPlan;
     if (!editedPlan || typeof editedPlan !== "object") return json({ error: "editedPlan is required." }, 400);
@@ -416,6 +425,7 @@ async function handleApi(request, env, ctx, url) {
   const publishPlanMatch = url.pathname.match(/^\/api\/admin\/clients\/([^/]+)\/publish-plan$/);
   if (publishPlanMatch && method === "POST") {
     assertRole(session, "admin");
+    await assertClientBelongsToGym(env, session, publishPlanMatch[1]);
     const body = await readJson(request);
     const publish = body.publish !== false;
     await setPlanPublished(env, publishPlanMatch[1], publish);
@@ -479,6 +489,7 @@ async function handleApi(request, env, ctx, url) {
   if (url.pathname === "/api/admin/exports/google-sheets" && method === "POST") {
     assertRole(session, "admin");
     const body = await readJson(request);
+    if (body.clientId) await assertClientBelongsToGym(env, session, body.clientId);
     const result = await exportToGoogleSheets(env, body.clientId || null);
     return json({ ok: true, result });
   }
@@ -527,6 +538,13 @@ function assertRole(session, role) {
 function getGymId(session) {
   // superadmin has no gym_id — returns null (used to bypass filtering)
   return session.user.gym_id || null;
+}
+
+async function assertClientBelongsToGym(env, session, clientId) {
+  const gymId = getGymId(session);
+  if (!gymId) return; // superadmin bypasses gym scope check
+  const client = await env.DB.prepare(`SELECT id FROM clients WHERE id = ? AND gym_id = ?`).bind(clientId, gymId).first();
+  if (!client) throw new HttpError("Client not found.", 404);
 }
 
 async function getAdminClientDetail(env, clientId) {
