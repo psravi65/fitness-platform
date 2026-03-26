@@ -1767,7 +1767,7 @@
       // ✅ FIXED: correct API endpoint for generating plan
       const handleGeneratePlan = async () => {
         setGeneratingPlan(true);
-        setFlash({ msg: "⚙️ AI Agents working — this takes ~30 seconds..." });
+        setFlash({ msg: "⚙️ AI Agents working — this can take 1-2 minutes for thinking model..." });
         try {
           await api(`/api/admin/clients/${client.id}/generate-plan`, { method: 'POST' });
           setFlash({ msg: "✅ AI Plan generated!" });

@@ -1,11 +1,11 @@
 // ─── Named constants (replace magic numbers) ────────────────────────────────
 const LOGIN_RATE_LIMIT_MAX       = 10;    // max login attempts before lockout
 const LOGIN_RATE_LIMIT_WINDOW_S  = 60;    // sliding window in seconds
-const PLAN_GEN_RATE_LIMIT_MAX    = 5;     // max plan generations per client per hour
+const PLAN_GEN_RATE_LIMIT_MAX    = 20;    // max plan generations per client per hour
 const PLAN_GEN_RATE_LIMIT_WINDOW_S = 3600;
 const PLAN_GEN_LOCK_TTL_S        = 300;   // in-flight lock TTL (5 min)
 const DEFAULT_CLEAN_MAX_LENGTH   = 200;   // default max chars for clean()
-const GEMINI_TIMEOUT_MS          = 30000; // default Gemini API timeout
+const GEMINI_TIMEOUT_MS          = 120000; // Gemini timeout — thinking model can take 60-90s
 // ────────────────────────────────────────────────────────────────────────────
 
 export default {
@@ -446,8 +446,9 @@ async function handleApi(request, env, ctx, url) {
     assertRole(session, "admin");
     const clientId = generatePlanMatch[1];
     await assertClientBelongsToGym(env, session, clientId);
-    const planGenLimited = await checkRateLimit(env, `generate-plan:${clientId}`, PLAN_GEN_RATE_LIMIT_MAX, PLAN_GEN_RATE_LIMIT_WINDOW_S);
-    if (planGenLimited) return json({ error: "Plan generation limit reached for this client. Please wait before generating again." }, 429);
+    // Check limit without incrementing — only count SUCCESSFUL generations (see incrementRateLimit call after saveDraftPlan)
+    const planGenLimited = await isRateLimited(env, `generate-plan:${clientId}`, PLAN_GEN_RATE_LIMIT_MAX, PLAN_GEN_RATE_LIMIT_WINDOW_S);
+    if (planGenLimited) return json({ error: "Plan generation limit reached for this client (20/hour). Please wait before generating again." }, 429);
 
     // Concurrency guard: prevent two simultaneous generations for the same client
     const lockKey = `plan-in-flight:${clientId}`;
@@ -481,6 +482,8 @@ async function handleApi(request, env, ctx, url) {
     }
     await saveDraftPlan(env, clientId, intake.id, finalPlan, finalReviews);
     await writeAuditLog(env, session, "plan.generate", clientId, { intakeId: intake.id, householdAware: !!householdContext });
+    // Only count successful generations against the rate limit
+    await incrementRateLimit(env, `generate-plan:${clientId}`, PLAN_GEN_RATE_LIMIT_WINDOW_S);
     } finally {
       // Always release the in-flight lock so retries aren't permanently blocked
       await env.DB.prepare(`DELETE FROM rate_limits WHERE key = ?`).bind(lockKey).run().catch(() => {});
@@ -1643,6 +1646,46 @@ async function checkRateLimit(env, key, maxAttempts, windowSeconds) {
   } catch (err) {
     console.error("[rate-limit] DB error — failing closed to prevent brute force bypass:", err.message);
     return true; // fail closed — block requests if rate-limit table is unavailable
+  }
+}
+
+// Read-only check — does NOT increment. Use for operations where only successes should count.
+async function isRateLimited(env, key, maxAttempts, windowSeconds) {
+  try {
+    const now = Date.now();
+    const record = await env.DB.prepare(
+      `SELECT attempts, window_start FROM rate_limits WHERE key = ?`
+    ).bind(key).first();
+    if (!record) return false;
+    const windowExpired = now - new Date(record.window_start).getTime() >= windowSeconds * 1000;
+    if (windowExpired) return false;
+    return record.attempts >= maxAttempts;
+  } catch (err) {
+    console.error("[rate-limit] DB error — failing closed:", err.message);
+    return true;
+  }
+}
+
+// Increment the counter for a key (or start a fresh window). Call after a successful operation.
+async function incrementRateLimit(env, key, windowSeconds) {
+  try {
+    const now = Date.now();
+    const record = await env.DB.prepare(
+      `SELECT attempts, window_start FROM rate_limits WHERE key = ?`
+    ).bind(key).first();
+    const windowExpired = !record || (now - new Date(record.window_start).getTime() >= windowSeconds * 1000);
+    if (windowExpired) {
+      await env.DB.prepare(
+        `INSERT OR REPLACE INTO rate_limits (key, attempts, window_start) VALUES (?, 1, ?)`
+      ).bind(key, new Date(now).toISOString()).run();
+    } else {
+      await env.DB.prepare(
+        `UPDATE rate_limits SET attempts = attempts + 1 WHERE key = ?`
+      ).bind(key).run();
+    }
+  } catch (err) {
+    // Don't fail the successful operation just because accounting failed
+    console.error("[rate-limit] Failed to increment counter for key:", key, err.message);
   }
 }
 
