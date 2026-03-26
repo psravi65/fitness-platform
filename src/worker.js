@@ -500,6 +500,9 @@ async function handleApi(request, env, ctx, url) {
     else
       agentResult = await runSportsScientistAgent(env, intake.answers_json, plan.effectivePlan, null, progressContext);
 
+    // Don't persist a rate-limit failure — return the error directly so the flash shows it
+    if (agentResult.rateLimited) return json({ error: agentResult.reason }, 429);
+
     // Merge into existing reviews, preserving other agents' results
     const merged = { ...(plan.agent_reviews_json || {}), [agentKey]: agentResult, pipelineRunAt: nowIso() };
     const all = ['nutritionist', 'fitnessExpert', 'sportsScientist'].map(k => merged[k]).filter(Boolean);
@@ -1188,7 +1191,13 @@ async function callGeminiAgent(env, agentName, systemPrompt, planJson, intakeJso
     if (!res.ok) {
       const errBody = await res.text().catch(() => "");
       console.error(`[agent:${agentName}] HTTP ${res.status}`, errBody.slice(0, 500));
-      return { status: "skipped", reason: `Agent API error: HTTP ${res.status}`, issues: [], suggestions: [] };
+      const isQuotaExhausted = errBody.includes("quota") || errBody.includes("RESOURCE_EXHAUSTED");
+      const reason = res.status === 429
+        ? (isQuotaExhausted
+            ? "Gemini daily quota reached (250 req/day on free tier). Try again tomorrow or upgrade to a paid API key."
+            : "Gemini rate limit hit. Wait 60 seconds and try again.")
+        : `Agent API error: HTTP ${res.status}`;
+      return { status: "skipped", reason, rateLimited: res.status === 429, issues: [], suggestions: [] };
     }
     const data = await res.json();
     const text = (data?.candidates?.[0]?.content?.parts || []).filter(p => !p.thought).map(p => p.text || "").join("") || "";
