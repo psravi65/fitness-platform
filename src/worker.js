@@ -1108,13 +1108,19 @@ async function callGeminiAgent(env, agentName, systemPrompt, planJson, intakeJso
 
   try {
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL || "gemini-2.5-flash"}:generateContent?key=${env.GEMINI_API_KEY}`;
-    const res = await fetchWithTimeout(apiUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt }] }]
-      })
-    }, Number(env.GEMINI_TIMEOUT_MS) || GEMINI_TIMEOUT_MS);
+    const body = JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }] }] });
+    // Retry up to 2 times on 429 (rate limit) with 15s backoff
+    let res;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) await new Promise(r => setTimeout(r, 15000 * attempt));
+      res = await fetchWithTimeout(apiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body
+      }, Number(env.GEMINI_TIMEOUT_MS) || GEMINI_TIMEOUT_MS);
+      if (res.status !== 429) break;
+      console.warn(`[agent:${agentName}] 429 rate limit — retrying (attempt ${attempt + 1})`);
+    }
     if (!res.ok) {
       const errBody = await res.text().catch(() => "");
       console.error(`[agent:${agentName}] HTTP ${res.status}`, errBody.slice(0, 500));
@@ -1183,9 +1189,11 @@ Status rules: approved = well-structured evidence-based plan, needs_attention = 
 
 
 async function runAgentPipeline(env, intake, plan, householdContext = null) {
-  // Run sequentially to avoid rate limits on free Gemini tier
+  // Run sequentially with a short delay between calls to stay within Gemini free-tier RPM limits
   const nutritionist = await runNutritionistAgent(env, intake, plan, householdContext);
+  await new Promise(r => setTimeout(r, 5000));
   const fitnessExpert = await runFitnessExpertAgent(env, intake, plan, null);
+  await new Promise(r => setTimeout(r, 5000));
   const sportsScientist = await runSportsScientistAgent(env, intake, plan, null);
   return {
     nutritionist,
