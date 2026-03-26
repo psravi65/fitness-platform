@@ -13,6 +13,18 @@ export default {
 
     try {
       const url = new URL(request.url);
+      if (url.pathname === "/sw.js") {
+        return new Response(
+          `self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', e => e.waitUntil(clients.claim()));
+self.addEventListener('fetch', e => {
+  if (e.request.method !== 'GET' || e.request.url.includes('/api/')) return;
+  e.respondWith(fetch(e.request));
+});`,
+          { headers: { "Content-Type": "application/javascript", "Cache-Control": "no-cache" } }
+        );
+      }
+
       if (url.pathname === "/manifest.json") {
         return new Response(JSON.stringify({
           name: "GymLog · Fitness Platform",
