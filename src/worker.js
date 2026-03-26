@@ -3,6 +3,16 @@ const ICON_512 = "iVBORw0KGgoAAAANSUhEUgAAAgAAAAIACAIAAAB7GkOtAAATo0lEQVR42u3dd5
 
 export default {
   async fetch(request, env, ctx) {
+    if (env.APP_URL === "https://your-cloudflare-domain.workers.dev") {
+      console.warn("[config] APP_URL is still the default placeholder. Set it in wrangler.toml.");
+    }
+    if (!env.GEMINI_API_KEY) {
+      console.warn("[config] GEMINI_API_KEY is not set. Plans will use the deterministic fallback generator.");
+    }
+    if (!env.RESEND_API_KEY) {
+      console.warn("[config] RESEND_API_KEY is not set. Welcome emails will only be logged to console.");
+    }
+
     try {
       const url = new URL(request.url);
       if (url.pathname === "/manifest.json") {
@@ -86,6 +96,10 @@ async function handleApi(request, env, ctx, url) {
   }
 
   if (url.pathname === "/api/auth/login" && method === "POST") {
+    const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+    const limited = await checkRateLimit(env, `login:${ip}`, 10, 60);
+    if (limited) return json({ error: "Too many login attempts. Please wait a minute and try again." }, 429);
+
     const body = await readJson(request);
     const username = clean(body.username);
     const password = String(body.password || "");
@@ -332,6 +346,7 @@ async function handleApi(request, env, ctx, url) {
     assertRole(session, "admin");
     await assertClientBelongsToGym(env, session, adminClientMatch[1]);
     await env.DB.prepare(`DELETE FROM clients WHERE id = ?`).bind(adminClientMatch[1]).run();
+    await writeAuditLog(env, session, "client.delete", adminClientMatch[1]);
     return json({ ok: true });
   }
 
@@ -345,6 +360,7 @@ async function handleApi(request, env, ctx, url) {
     await env.DB.prepare(`UPDATE users SET password_hash = ?, must_change_password = 1 WHERE id = ?`)
       .bind(await hashPassword(tempPassword), user.id)
       .run();
+    await writeAuditLog(env, session, "client.reset_password", resetPasswordMatch[1]);
     return json({ ok: true, temporaryPassword: tempPassword });
   }
 
@@ -413,6 +429,7 @@ async function handleApi(request, env, ctx, url) {
     finalReviews.refinedFrom = draftReviews;
     if (householdContext) finalReviews.householdAware = true;
     await saveDraftPlan(env, clientId, intake.id, finalPlan, finalReviews);
+    await writeAuditLog(env, session, "plan.generate", clientId, { intakeId: intake.id, householdAware: !!householdContext });
     return json({ ok: true });
   }
 
@@ -435,6 +452,7 @@ async function handleApi(request, env, ctx, url) {
     const body = await readJson(request);
     const publish = body.publish !== false;
     await setPlanPublished(env, publishPlanMatch[1], publish);
+    await writeAuditLog(env, session, publish ? "plan.publish" : "plan.unpublish", publishPlanMatch[1]);
     return json({ ok: true, published: publish });
   }
 
@@ -1415,6 +1433,47 @@ function fetchWithTimeout(url, options, timeoutMs = 30000) {
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   return fetch(url, { ...options, signal: controller.signal })
     .finally(() => clearTimeout(timer));
+}
+
+async function writeAuditLog(env, session, action, targetId, meta = {}) {
+  try {
+    await env.DB.prepare(
+      `INSERT INTO audit_logs (id, actor_id, actor_username, action, target_id, meta, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+    ).bind(
+      crypto.randomUUID(),
+      session?.user?.id || null,
+      session?.user?.username || null,
+      action,
+      targetId || null,
+      JSON.stringify(meta)
+    ).run();
+  } catch (err) {
+    console.error("[audit] Failed to write audit log:", err.message);
+  }
+}
+
+async function checkRateLimit(env, key, maxAttempts, windowSeconds) {
+  try {
+    const now = Date.now();
+    const record = await env.DB.prepare(
+      `SELECT attempts, window_start FROM rate_limits WHERE key = ?`
+    ).bind(key).first();
+    const windowExpired = !record || (now - new Date(record.window_start).getTime() >= windowSeconds * 1000);
+    if (windowExpired) {
+      await env.DB.prepare(
+        `INSERT OR REPLACE INTO rate_limits (key, attempts, window_start) VALUES (?, 1, ?)`
+      ).bind(key, new Date(now).toISOString()).run();
+      return false; // not limited
+    }
+    if (record.attempts >= maxAttempts) return true; // limited
+    await env.DB.prepare(
+      `UPDATE rate_limits SET attempts = attempts + 1 WHERE key = ?`
+    ).bind(key).run();
+    return false; // not limited
+  } catch {
+    return false; // fail open — don't block requests if rate-limit table is unavailable
+  }
 }
 
 class HttpError extends Error {
