@@ -510,6 +510,57 @@ async function handleApi(request, env, ctx, url) {
     return json({ ok: true });
   }
 
+  if (url.pathname === "/api/app/progress-history" && method === "GET") {
+    assertRole(session, "client");
+    const clientId = session.user.client_id;
+    const [logsRes, checkinsRes] = await Promise.all([
+      env.DB.prepare(
+        `SELECT log_date, macros_json, steps, hydration FROM daily_logs WHERE client_id = ? ORDER BY log_date DESC LIMIT 30`
+      ).bind(clientId).all(),
+      env.DB.prepare(
+        `SELECT checkin_date, weight, body_fat FROM checkins WHERE client_id = ? ORDER BY checkin_date DESC LIMIT 12`
+      ).bind(clientId).all()
+    ]);
+    return json({
+      logs: (logsRes.results || []).map(r => ({ ...r, macros_json: safeJson(r.macros_json, {}) })),
+      checkins: checkinsRes.results || []
+    });
+  }
+
+  if (url.pathname === "/api/admin/compliance" && method === "GET") {
+    assertRole(session, "admin");
+    const gymId = getGymId(session);
+    const scope = gymId ? "AND clients.gym_id = ?" : "";
+    const b = gymId ? [gymId] : [];
+    const [total, loggedThisWeek, inactive14d, unpublished, noCheckin14d, needsReplanRows] = await Promise.all([
+      env.DB.prepare(`SELECT COUNT(*) as n FROM clients WHERE 1=1 ${scope}`).bind(...b).first(),
+      env.DB.prepare(`SELECT COUNT(DISTINCT dl.client_id) as n FROM daily_logs dl JOIN clients ON clients.id = dl.client_id WHERE dl.log_date >= date('now','-7 days') ${scope}`).bind(...b).first(),
+      env.DB.prepare(`SELECT COUNT(*) as n FROM clients WHERE NOT EXISTS (SELECT 1 FROM daily_logs WHERE client_id = clients.id AND log_date >= date('now','-14 days')) ${scope}`).bind(...b).first(),
+      env.DB.prepare(`SELECT COUNT(*) as n FROM clients WHERE EXISTS (SELECT 1 FROM plans WHERE client_id = clients.id AND status = 'draft') ${scope}`).bind(...b).first(),
+      env.DB.prepare(`SELECT COUNT(*) as n FROM clients WHERE EXISTS (SELECT 1 FROM plans WHERE client_id = clients.id AND status = 'published') AND NOT EXISTS (SELECT 1 FROM checkins WHERE client_id = clients.id AND checkin_date >= date('now','-14 days')) ${scope}`).bind(...b).first(),
+      env.DB.prepare(`
+        SELECT clients.id, clients.full_name, users.username,
+          (SELECT MAX(checkin_date) FROM checkins WHERE client_id = clients.id) as last_checkin_date
+        FROM clients
+        LEFT JOIN users ON users.client_id = clients.id AND users.role = 'client'
+        WHERE EXISTS (SELECT 1 FROM plans WHERE client_id = clients.id AND status = 'published')
+        AND NOT EXISTS (SELECT 1 FROM checkins WHERE client_id = clients.id AND checkin_date >= date('now','-21 days'))
+        ${scope}
+        ORDER BY CASE WHEN (SELECT MAX(checkin_date) FROM checkins WHERE client_id = clients.id) IS NULL THEN 0 ELSE 1 END ASC,
+                 last_checkin_date ASC
+        LIMIT 20
+      `).bind(...b).all()
+    ]);
+    return json({
+      totalClients: Number(total?.n || 0),
+      loggedThisWeek: Number(loggedThisWeek?.n || 0),
+      inactive14d: Number(inactive14d?.n || 0),
+      unpublished: Number(unpublished?.n || 0),
+      noCheckin14d: Number(noCheckin14d?.n || 0),
+      needsReplan: needsReplanRows.results || []
+    });
+  }
+
   if (url.pathname === "/api/admin/exports/google-sheets" && method === "POST") {
     assertRole(session, "admin");
     const body = await readJson(request);
@@ -1499,6 +1550,7 @@ function buildReviewFlags(client) {
   if (client.last_checkin_at) flags.push("check-in");
   if (client.last_weekly_review_at) flags.push("weekly review");
   if (!client.last_log_date || daysSinceDate(client.last_log_date) >= 3) flags.push("inactive");
+  if (client.plan_status === "published" && daysSinceDate(client.last_checkin_at) >= 21) flags.push("needs replan");
   return flags;
 }
 

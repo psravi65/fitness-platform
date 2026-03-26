@@ -14,12 +14,13 @@
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
   <div id="root"></div>
 
   <script type="text/babel">
-    const { useState, useEffect, useMemo } = React;
+    const { useState, useEffect, useMemo, useRef } = React;
 
     async function api(path, options = {}) {
       const res = await fetch(path, {
@@ -294,6 +295,131 @@
               <i className="fa-solid fa-camera"></i>
             </button>
           </section>
+        </div>
+      );
+    };
+
+    const ProgressCharts = ({ appData }) => {
+      const [history, setHistory] = useState(null);
+      const weightCanvasRef = useRef(null);
+      const calCanvasRef = useRef(null);
+      const weightChartRef = useRef(null);
+      const calChartRef = useRef(null);
+
+      useEffect(() => {
+        api('/api/app/progress-history').then(res => setHistory(res)).catch(() => setHistory({ logs: [], checkins: [] }));
+      }, []);
+
+      useEffect(() => {
+        if (!history || !window.Chart) return;
+        const CHART_DEFAULTS = {
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { ticks: { color: '#7a9abf', font: { size: 9 }, maxRotation: 45 }, grid: { color: '#1a2e48' } },
+            y: { ticks: { color: '#7a9abf', font: { size: 9 } }, grid: { color: '#1a2e48' } }
+          }
+        };
+        const checkins = [...(history.checkins || [])].reverse();
+        if (checkins.length > 1 && weightCanvasRef.current) {
+          if (weightChartRef.current) weightChartRef.current.destroy();
+          weightChartRef.current = new window.Chart(weightCanvasRef.current, {
+            type: 'line',
+            data: {
+              labels: checkins.map(c => c.checkin_date),
+              datasets: [
+                { label: 'Weight', data: checkins.map(c => c.weight), borderColor: '#6bff8f', backgroundColor: 'rgba(107,255,143,0.08)', tension: 0.4, fill: true, pointRadius: 4, pointBackgroundColor: '#6bff8f' },
+                ...(checkins.some(c => c.body_fat) ? [{ label: 'Body Fat %', data: checkins.map(c => c.body_fat), borderColor: '#00cba8', backgroundColor: 'transparent', tension: 0.4, pointRadius: 3, pointBackgroundColor: '#00cba8', yAxisID: 'y2' }] : [])
+              ]
+            },
+            options: { ...CHART_DEFAULTS, scales: { ...CHART_DEFAULTS.scales, ...(checkins.some(c => c.body_fat) ? { y2: { position: 'right', ticks: { color: '#00cba8', font: { size: 9 } }, grid: { drawOnChartArea: false } } } : {}) } }
+          });
+        }
+        const logs = [...(history.logs || [])].reverse();
+        if (logs.length > 0 && calCanvasRef.current) {
+          if (calChartRef.current) calChartRef.current.destroy();
+          calChartRef.current = new window.Chart(calCanvasRef.current, {
+            type: 'bar',
+            data: {
+              labels: logs.map(l => l.log_date),
+              datasets: [{ label: 'Calories', data: logs.map(l => l.macros_json?.calories || 0), backgroundColor: 'rgba(255,201,64,0.7)', borderColor: '#ffc940', borderWidth: 1, borderRadius: 4 }]
+            },
+            options: CHART_DEFAULTS
+          });
+        }
+        return () => {
+          if (weightChartRef.current) { weightChartRef.current.destroy(); weightChartRef.current = null; }
+          if (calChartRef.current) { calChartRef.current.destroy(); calChartRef.current = null; }
+        };
+      }, [history]);
+
+      const planData = getPlanData(appData);
+      const targetCalories = parseFirstNumber(planData?.calorieTarget) || 0;
+      const checkins = history?.checkins || [];
+      const latestWeight = checkins[0]?.weight;
+      const prevWeight = checkins[1]?.weight;
+      const weightDelta = (latestWeight && prevWeight) ? (latestWeight - prevWeight).toFixed(1) : null;
+
+      return (
+        <div className="p-5 space-y-6 pb-10">
+          <section>
+            <h2 className="text-2xl font-black text-white tracking-tight">Progress</h2>
+            <p className="text-sm text-gray-400 mt-1">Your trends over time.</p>
+          </section>
+
+          {!history ? (
+            <div className="flex items-center justify-center py-16"><i className="fa-solid fa-spinner fa-spin text-3xl text-[#6bff8f]"></i></div>
+          ) : (
+            <>
+              {/* Stat pills */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-[#1a1919] border border-white/5 rounded-2xl p-4 text-center">
+                  <div className="text-xl font-black text-white">{latestWeight ? `${latestWeight}` : '—'}</div>
+                  <div className="text-[9px] text-gray-500 uppercase tracking-widest mt-1 font-bold">kg now</div>
+                </div>
+                <div className="bg-[#1a1919] border border-white/5 rounded-2xl p-4 text-center">
+                  <div className={`text-xl font-black ${weightDelta === null ? 'text-gray-500' : weightDelta > 0 ? 'text-[#ffc940]' : 'text-[#6bff8f]'}`}>{weightDelta !== null ? (weightDelta > 0 ? `+${weightDelta}` : weightDelta) : '—'}</div>
+                  <div className="text-[9px] text-gray-500 uppercase tracking-widest mt-1 font-bold">kg change</div>
+                </div>
+                <div className="bg-[#1a1919] border border-white/5 rounded-2xl p-4 text-center">
+                  <div className="text-xl font-black text-[#ffc940]">{history.logs.filter(l => l.macros_json?.calories > 0).length}</div>
+                  <div className="text-[9px] text-gray-500 uppercase tracking-widest mt-1 font-bold">days logged</div>
+                </div>
+              </div>
+
+              {/* Weight + Body Fat chart */}
+              <div className="bg-[#1a1919] border border-white/5 rounded-3xl p-5">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-sm font-bold text-white">Weight Trend</h3>
+                  {checkins.some(c => c.body_fat) && <div className="flex gap-3 text-[9px] font-bold uppercase tracking-widest"><span className="text-[#6bff8f]">— Weight</span><span className="text-[#00cba8]">— Body Fat %</span></div>}
+                </div>
+                {checkins.length > 1 ? (
+                  <canvas ref={weightCanvasRef} height="140"></canvas>
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-8 text-center">
+                    <i className="fa-solid fa-scale-balanced text-3xl text-gray-700 mb-3"></i>
+                    <p className="text-xs text-gray-500">Log at least 2 check-ins to see your weight trend.</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Calorie adherence chart */}
+              <div className="bg-[#1a1919] border border-white/5 rounded-3xl p-5">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-sm font-bold text-white">Calorie Log (30 days)</h3>
+                  {targetCalories > 0 && <span className="text-[9px] text-gray-500 font-bold uppercase tracking-widest">Target: {targetCalories} kcal</span>}
+                </div>
+                {history.logs.length > 0 ? (
+                  <canvas ref={calCanvasRef} height="140"></canvas>
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-8 text-center">
+                    <i className="fa-solid fa-chart-bar text-3xl text-gray-700 mb-3"></i>
+                    <p className="text-xs text-gray-500">Start logging meals to see your calorie history.</p>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </div>
       );
     };
@@ -1208,6 +1334,7 @@
             {activeTab === 'diet' && <ClientDietView appData={appData} setFlash={setFlash} onSaved={fetchBootstrap} />}
             {activeTab === 'workout' && <ClientWorkoutView appData={appData} setFlash={setFlash} onSaved={fetchBootstrap} />}
             {activeTab === 'checkin' && <ClientCheckinView setFlash={setFlash} />}
+            {activeTab === 'progress' && <ProgressCharts appData={appData} />}
           </main>
 
           <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-[#131313]/90 backdrop-blur-xl border-t border-white/5 rounded-t-[20px] p-2 flex justify-between z-50">
@@ -1216,7 +1343,7 @@
               (hasPlan ? { id: 'plan', icon: 'fa-calendar-day', label: 'Plan' } : { id: 'intake', icon: 'fa-clipboard-list', label: 'Intake' }),
               { id: 'diet', icon: 'fa-utensils', label: 'Diet' },
               { id: 'workout', icon: 'fa-dumbbell', label: 'Workout' },
-              { id: 'checkin', icon: 'fa-camera', label: 'Check-in' }
+              { id: 'progress', icon: 'fa-chart-line', label: 'Progress' }
             ].map(tab => (
               <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex-1 flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${activeTab === tab.id ? 'text-[#6bff8f] bg-[#1a1919]' : 'text-gray-500 hover:text-gray-300'}`}>
                 <i className={`fa-solid ${tab.icon} text-lg`}></i>
@@ -1229,6 +1356,87 @@
     };
 
     // --- Admin Views ---
+    const ComplianceDashboard = ({ onOpenClient, setFlash }) => {
+      const [data, setData] = useState(null);
+      useEffect(() => {
+        api('/api/admin/compliance').then(res => setData(res)).catch(() => setFlash({ err: "Failed to load compliance data." }));
+      }, []);
+
+      if (!data) return <div className="card flex items-center justify-center py-16"><i className="fa-solid fa-spinner fa-spin text-3xl text-[#6bff8f]"></i></div>;
+
+      const complianceRate = data.totalClients > 0 ? Math.round((data.loggedThisWeek / data.totalClients) * 100) : 0;
+      const STATS = [
+        { label: 'Total Clients', value: data.totalClients, icon: 'fa-users', color: 'text-white' },
+        { label: 'Logged This Week', value: data.loggedThisWeek, icon: 'fa-calendar-check', color: 'text-[#6bff8f]' },
+        { label: 'Inactive 14d+', value: data.inactive14d, icon: 'fa-moon', color: 'text-[#ffc940]' },
+        { label: 'Unpublished Plans', value: data.unpublished, icon: 'fa-file-circle-exclamation', color: 'text-[#ff7eb3]' },
+        { label: 'No Check-in 14d', value: data.noCheckin14d, icon: 'fa-scale-unbalanced', color: 'text-[#00cba8]' },
+        { label: 'Compliance Rate', value: `${complianceRate}%`, icon: 'fa-circle-check', color: complianceRate >= 70 ? 'text-[#6bff8f]' : complianceRate >= 40 ? 'text-[#ffc940]' : 'text-red-400' },
+      ];
+
+      return (
+        <div className="card space-y-6">
+          <h2 className="text-xl font-bold text-white">Compliance Overview</h2>
+
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            {STATS.map(s => (
+              <div key={s.label} className="bg-[#0b1628] border border-[#1a2e48] rounded-2xl p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <i className={`fa-solid ${s.icon} text-sm ${s.color}`}></i>
+                  <span className="text-[10px] text-gray-400 uppercase tracking-widest font-bold">{s.label}</span>
+                </div>
+                <div className={`text-3xl font-black ${s.color}`}>{s.value}</div>
+              </div>
+            ))}
+          </div>
+
+          {data.needsReplan.length > 0 && (
+            <div>
+              <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
+                <i className="fa-solid fa-rotate text-[#ffc940]"></i> Clients Needing Re-plan
+                <span className="bg-[#ffc940]/20 text-[#ffc940] border border-[#ffc940]/30 text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">{data.needsReplan.length}</span>
+              </h3>
+              <div className="overflow-hidden rounded-xl border border-[#1a2e48]">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-[#142642] text-[#7a9abf] text-[10px] uppercase tracking-widest font-semibold">
+                    <tr><th className="p-3">Client</th><th className="p-3">Last Check-in</th><th className="p-3"></th></tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#1a2e48]">
+                    {data.needsReplan.map(c => (
+                      <tr key={c.id} className="hover:bg-[#142642] transition-colors">
+                        <td className="p-3">
+                          <div className="font-bold text-white">{c.full_name}</div>
+                          <div className="text-xs text-gray-500 font-mono">@{c.username}</div>
+                        </td>
+                        <td className="p-3">
+                          {c.last_checkin_date
+                            ? <span className="text-[#ffc940] text-xs font-semibold">{c.last_checkin_date}</span>
+                            : <span className="text-red-400 text-xs font-semibold">Never</span>}
+                        </td>
+                        <td className="p-3 text-right">
+                          <button onClick={() => onOpenClient(c)} className="text-xs font-semibold text-[#6bff8f] hover:text-white transition-colors">
+                            Open <i className="fa-solid fa-arrow-right ml-1"></i>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {data.needsReplan.length === 0 && (
+            <div className="flex flex-col items-center py-8 text-center">
+              <i className="fa-solid fa-circle-check text-4xl text-[#6bff8f] mb-3"></i>
+              <p className="text-sm font-bold text-white">All caught up!</p>
+              <p className="text-xs text-gray-500 mt-1">No clients are overdue for a re-plan.</p>
+            </div>
+          )}
+        </div>
+      );
+    };
+
     const AdminRoster = ({ clients, onOpenClient, onAddClient }) => {
       const [showModal, setShowModal] = useState(false);
       const [saving, setSaving] = useState(false);
@@ -1248,13 +1456,28 @@
             <table className="w-full text-left text-sm">
               <thead className="bg-[#142642] text-[#7a9abf] text-[10px] uppercase tracking-widest font-semibold"><tr><th className="p-4">Client</th><th className="p-4">Status</th><th className="p-4"></th></tr></thead>
               <tbody className="divide-y divide-[#1a2e48]">
-                {clients.length === 0 ? <tr><td colSpan="3" className="p-8 text-center text-gray-400">No clients yet.</td></tr> : clients.map(c => (
-                  <tr key={c.id} className="hover:bg-[#142642] transition-colors">
-                    <td className="p-4"><div className="font-bold text-white">{c.full_name}</div><div className="text-xs text-gray-500 font-mono mt-1">@{c.username}</div></td>
-                    <td className="p-4"><span className="bg-[#00cba8]/10 text-[#00cba8] border border-[#00cba8]/30 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider">{c.status}</span></td>
-                    <td className="p-4 text-right"><button onClick={() => onOpenClient(c)} className="text-xs font-semibold text-[#6bff8f] hover:text-white transition-colors">Open <i className="fa-solid fa-arrow-right ml-1"></i></button></td>
-                  </tr>
-                ))}
+                {clients.length === 0 ? <tr><td colSpan="3" className="p-8 text-center text-gray-400">No clients yet.</td></tr> : clients.map(c => {
+                  const needsReplan = c.reviewFlags?.includes('needs replan');
+                  const inactive = c.reviewFlags?.includes('inactive');
+                  const needsPublish = c.reviewFlags?.includes('needs publish');
+                  return (
+                    <tr key={c.id} className="hover:bg-[#142642] transition-colors">
+                      <td className="p-4">
+                        <div className="font-bold text-white">{c.full_name}</div>
+                        <div className="text-xs text-gray-500 font-mono mt-1">@{c.username}</div>
+                      </td>
+                      <td className="p-4">
+                        <div className="flex flex-wrap gap-1">
+                          <span className="bg-[#00cba8]/10 text-[#00cba8] border border-[#00cba8]/30 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider">{c.status}</span>
+                          {needsReplan && <span className="bg-[#ffc940]/15 text-[#ffc940] border border-[#ffc940]/30 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider flex items-center gap-1"><i className="fa-solid fa-rotate"></i> Re-plan</span>}
+                          {needsPublish && <span className="bg-[#ff7eb3]/15 text-[#ff7eb3] border border-[#ff7eb3]/30 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider">Publish</span>}
+                          {inactive && !needsReplan && <span className="bg-white/5 text-gray-400 border border-white/10 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider">Inactive</span>}
+                        </div>
+                      </td>
+                      <td className="p-4 text-right"><button onClick={() => onOpenClient(c)} className="text-xs font-semibold text-[#6bff8f] hover:text-white transition-colors">Open <i className="fa-solid fa-arrow-right ml-1"></i></button></td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -1664,15 +1887,36 @@
     const AdminShell = ({ me, setMe, setFlash }) => {
       const [clients, setClients] = useState([]);
       const [activeClient, setActiveClient] = useState(null);
+      const [adminView, setAdminView] = useState('clients'); // 'clients' | 'compliance'
       const fetchClients = async () => { try { const res = await api('/api/admin/clients'); setClients(res.clients || []); } catch (err) { setFlash({ err: "Failed to load clients." }); } };
       useEffect(() => { fetchClients(); }, []);
       const handleAddClient = async (data) => { await api('/api/admin/clients', { method: 'POST', body: JSON.stringify(data) }); setFlash({ msg: "Client added! Email sent." }); fetchClients(); };
+      const handleOpenClient = (c) => { setActiveClient(c); setAdminView('clients'); };
+      const NAV = [
+        { id: 'clients', icon: 'fa-users', label: 'Clients' },
+        { id: 'compliance', icon: 'fa-chart-pie', label: 'Compliance' },
+      ];
       return (
         <div className="max-w-7xl mx-auto p-6 lg:p-10">
           <div className="flex justify-between items-center mb-10"><h1>Coach Dashboard</h1><button onClick={() => { api('/api/auth/logout', { method: 'POST' }).then(() => setMe(null)) }} className="ghost-btn text-sm">Sign Out</button></div>
           <div className="grid lg:grid-cols-[240px_1fr] gap-8">
-            <aside className="bg-gradient-to-b from-[#0b1628] to-[#0b1628]/90 border border-[#1a2e48] rounded-2xl p-4 h-fit"><nav className="flex flex-col gap-1"><button onClick={() => setActiveClient(null)} className={`flex items-center gap-3 w-full p-3 rounded-xl text-sm font-semibold text-left ${!activeClient ? 'text-[#6bff8f] bg-[#6bff8f]/10 border border-[#6bff8f]/30' : 'text-[#7a9abf] hover:bg-[#142642] hover:text-white'}`}><i className="fa-solid fa-user"></i> Clients</button></nav></aside>
-            <main>{!activeClient ? <AdminRoster clients={clients} onOpenClient={setActiveClient} onAddClient={handleAddClient} /> : <AdminClientDetail client={activeClient} onBack={() => setActiveClient(null)} setFlash={setFlash} />}</main>
+            <aside className="bg-gradient-to-b from-[#0b1628] to-[#0b1628]/90 border border-[#1a2e48] rounded-2xl p-4 h-fit">
+              <nav className="flex flex-col gap-1">
+                {NAV.map(n => (
+                  <button key={n.id} onClick={() => { setAdminView(n.id); setActiveClient(null); }} className={`flex items-center gap-3 w-full p-3 rounded-xl text-sm font-semibold text-left transition-all ${adminView === n.id && !activeClient ? 'text-[#6bff8f] bg-[#6bff8f]/10 border border-[#6bff8f]/30' : 'text-[#7a9abf] hover:bg-[#142642] hover:text-white'}`}>
+                    <i className={`fa-solid ${n.icon}`}></i> {n.label}
+                  </button>
+                ))}
+              </nav>
+            </aside>
+            <main>
+              {activeClient
+                ? <AdminClientDetail client={activeClient} onBack={() => setActiveClient(null)} setFlash={setFlash} />
+                : adminView === 'compliance'
+                  ? <ComplianceDashboard onOpenClient={handleOpenClient} setFlash={setFlash} />
+                  : <AdminRoster clients={clients} onOpenClient={handleOpenClient} onAddClient={handleAddClient} />
+              }
+            </main>
           </div>
         </div>
       );
