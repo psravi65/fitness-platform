@@ -369,6 +369,12 @@ async function handleApi(request, env, ctx, url) {
       // If baseMealsOn is set, store it — this client's plan will be used as meal reference
       if (body.baseMealsOn) {
         await assertClientBelongsToGym(env, session, body.baseMealsOn);
+        // Prevent silently moving a client out of a different household
+        const baseMealsOnClient = await env.DB.prepare(`SELECT household_id FROM clients WHERE id = ?`).bind(body.baseMealsOn).first();
+        const existingHousehold = baseMealsOnClient?.household_id?.replace(":base", "") || null;
+        if (existingHousehold && existingHousehold !== householdId) {
+          return json({ error: "baseMealsOn client already belongs to a different household." }, 409);
+        }
         await env.DB.prepare(`UPDATE clients SET household_id = ? || ':base' WHERE id = ?`).bind(householdId, body.baseMealsOn).run();
       }
     } else {
