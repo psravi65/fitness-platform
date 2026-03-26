@@ -942,6 +942,8 @@
     const ClientDietView = ({ appData, setFlash, onSaved }) => {
       const [selectedAiFood, setSelectedAiFood] = useState("");
       const [isCustom, setIsCustom] = useState(false);
+      const [mealPickerOpen, setMealPickerOpen] = useState(false);
+      const [expandedGroup, setExpandedGroup] = useState(null);
       const [loggedFoods, setLoggedFoods] = useState([]);
       const [saving, setSaving] = useState(false);
       const [hasSynced, setHasSynced] = useState(false);
@@ -1106,33 +1108,68 @@
           <div className="bg-[#1a1919] border border-[#6bff8f]/20 rounded-3xl p-6 space-y-4">
             <h3 className="font-bold text-white mb-2"><i className="fa-solid fa-plus text-[#6bff8f] mr-2"></i> Track Your Food</h3>
             <form onSubmit={handleAddFood} className="flex flex-col gap-3">
-              <select
-                value={isCustom ? 'custom' : selectedAiFood}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  if (value === 'custom') {
-                    setIsCustom(true);
-                    setSelectedAiFood('');
-                    return;
-                  }
-                  setIsCustom(false);
-                  setSelectedAiFood(value);
-                }}
-                className="bg-[#262626] border-white/10 text-white text-sm cursor-pointer"
-              >
-                <option value="">— Pick a meal from your plan —</option>
-                {aiFoodOptions.map((group) => (
-                  <optgroup key={group.groupLabel} label={`🍽 ${group.groupLabel}`}>
-                    {group.items.map((opt) => (
-                      <option key={opt.label} value={opt.label}>
-                        {opt.label.length > 55 ? `${opt.label.slice(0, 55)}…` : opt.label}
-                        {opt.calories > 0 ? ` (${opt.calories} kcal)` : ''}
-                      </option>
+              {/* Custom meal picker — replaces native <select> */}
+              <div className="relative">
+                {/* Trigger button */}
+                <button type="button"
+                  onClick={() => { setMealPickerOpen(o => !o); setExpandedGroup(null); }}
+                  className="w-full flex items-center justify-between bg-[#262626] border border-white/10 rounded-xl px-4 py-3 text-sm text-left transition-colors hover:border-[#6bff8f]/40 focus:outline-none focus:border-[#6bff8f]/60">
+                  <span className={isCustom ? 'text-[#6bff8f]' : selectedAiFood ? 'text-white' : 'text-gray-500'}>
+                    {isCustom ? '✏️ Custom food entry' : selectedAiFood ? (selectedAiFood.length > 45 ? selectedAiFood.slice(0,45)+'…' : selectedAiFood) : '🍽 Pick a meal from your plan'}
+                  </span>
+                  <i className={`fa-solid fa-chevron-down text-gray-500 text-xs transition-transform duration-200 ${mealPickerOpen ? 'rotate-180' : ''}`}></i>
+                </button>
+
+                {/* Dropdown panel */}
+                {mealPickerOpen && (
+                  <div className="absolute z-30 left-0 right-0 top-full mt-1 bg-[#1a1919] border border-white/10 rounded-2xl shadow-2xl overflow-hidden max-h-[420px] overflow-y-auto">
+                    {/* Meal groups as accordion */}
+                    {aiFoodOptions.map((group) => (
+                      <div key={group.groupLabel} className="border-b border-white/5 last:border-0">
+                        {/* Group header */}
+                        <button type="button"
+                          onClick={() => setExpandedGroup(expandedGroup === group.groupLabel ? null : group.groupLabel)}
+                          className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/5 transition-colors text-left">
+                          <span className="text-xs font-bold text-[#6bff8f] uppercase tracking-widest">🍽 {group.groupLabel}</span>
+                          <i className={`fa-solid fa-chevron-right text-gray-600 text-xs transition-transform duration-200 ${expandedGroup === group.groupLabel ? 'rotate-90' : ''}`}></i>
+                        </button>
+                        {/* Food items */}
+                        {expandedGroup === group.groupLabel && (
+                          <div className="pb-1">
+                            {group.items.map((opt) => (
+                              <button key={opt.label} type="button"
+                                onClick={() => { setSelectedAiFood(opt.label); setIsCustom(false); setMealPickerOpen(false); }}
+                                className={`w-full text-left px-4 py-3 transition-colors hover:bg-[#6bff8f]/10 border-l-2 ${selectedAiFood === opt.label ? 'border-l-[#6bff8f] bg-[#6bff8f]/10' : 'border-l-transparent'}`}>
+                                <div className="text-sm text-white font-medium leading-snug">
+                                  {opt.label.length > 55 ? opt.label.slice(0,55)+'…' : opt.label}
+                                </div>
+                                <div className="flex gap-2 mt-1.5 flex-wrap">
+                                  {opt.calories > 0 && <span className="text-[9px] font-bold bg-[#ffc940]/15 text-[#ffc940] px-2 py-0.5 rounded-full">{opt.calories} kcal</span>}
+                                  {opt.protein > 0 && <span className="text-[9px] font-bold bg-[#00cba8]/15 text-[#00cba8] px-2 py-0.5 rounded-full">{opt.protein}g P</span>}
+                                  {opt.carbs > 0 && <span className="text-[9px] font-bold bg-[#6ba4ff]/15 text-[#6ba4ff] px-2 py-0.5 rounded-full">{opt.carbs}g C</span>}
+                                  {opt.fat > 0 && <span className="text-[9px] font-bold bg-[#ff6b6b]/15 text-[#ff6b6b] px-2 py-0.5 rounded-full">{opt.fat}g F</span>}
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     ))}
-                  </optgroup>
-                ))}
-                <option value="custom">✏️ Custom food entry</option>
-              </select>
+                    {/* Custom entry option */}
+                    <button type="button"
+                      onClick={() => { setIsCustom(true); setSelectedAiFood(''); setMealPickerOpen(false); }}
+                      className={`w-full text-left px-4 py-3 flex items-center gap-3 transition-colors hover:bg-white/5 ${isCustom ? 'bg-[#6bff8f]/10' : ''}`}>
+                      <div className="w-7 h-7 rounded-lg bg-[#262626] flex items-center justify-center shrink-0">
+                        <i className="fa-solid fa-pen text-[#6bff8f] text-xs"></i>
+                      </div>
+                      <div>
+                        <div className="text-sm text-white font-medium">Custom food entry</div>
+                        <div className="text-[10px] text-gray-500 mt-0.5">Search nutrition database</div>
+                      </div>
+                    </button>
+                  </div>
+                )}
+              </div>
 
               {isCustom && (
                 <div className="flex flex-col gap-2">
