@@ -1756,6 +1756,7 @@
       const [activeTab, setActiveTab] = useState('plan');
       const [planViewTab, setPlanViewTab] = useState('workout');
       const [credentialsModal, setCredentialsModal] = useState(null);
+      const [showAgentReviews, setShowAgentReviews] = useState(false);
 
       const fetchDetails = async () => {
         try { const res = await api(`/api/admin/clients/${client.id}`); setDetails(res); }
@@ -1907,9 +1908,20 @@
                     <i className="fa-solid fa-brain text-[#ffc940] mr-2"></i> Coaching Plan
                   </h3>
                   {details.plan && (
-                    <span className={`text-xs font-bold px-3 py-1 rounded-full border ${details.plan.status === 'published' ? 'bg-[#00cba8]/10 text-[#00cba8] border-[#00cba8]/30' : 'bg-[#ffc940]/10 text-[#ffc940] border-[#ffc940]/30'}`}>
-                      {details.plan.status === 'published' ? '🟢 Published' : '🟡 Draft'}
-                    </span>
+                    <div className="flex items-center gap-2 flex-wrap justify-end">
+                      {ep?.generationMeta?.source && (
+                        ep.generationMeta.source === 'gemini'
+                          ? <span className="text-xs font-bold px-3 py-1 rounded-full border bg-[#6bff8f]/10 text-[#6bff8f] border-[#6bff8f]/30" title={ep.generationMeta.model || 'Gemini'}>
+                              <i className="fa-solid fa-robot mr-1"></i> AI · Gemini
+                            </span>
+                          : <span className="text-xs font-bold px-3 py-1 rounded-full border bg-[#ffc940]/10 text-[#ffc940] border-[#ffc940]/30" title={ep.generationMeta.reason || 'Gemini unavailable'}>
+                              <i className="fa-solid fa-gears mr-1"></i> Fallback Generator
+                            </span>
+                      )}
+                      <span className={`text-xs font-bold px-3 py-1 rounded-full border ${details.plan.status === 'published' ? 'bg-[#00cba8]/10 text-[#00cba8] border-[#00cba8]/30' : 'bg-[#ffc940]/10 text-[#ffc940] border-[#ffc940]/30'}`}>
+                        {details.plan.status === 'published' ? '🟢 Published' : '🟡 Draft'}
+                      </span>
+                    </div>
                   )}
                 </div>
 
@@ -1964,6 +1976,22 @@
                       </div>
                     ))}
                   </div>
+
+                  {/* Agent pipeline status banner */}
+                  {details.plan?.agent_reviews_json && (
+                    <div className={`flex items-center justify-between px-4 py-2 rounded-xl border text-xs font-semibold ${
+                      details.plan.agent_reviews_json.overallStatus === 'flagged'       ? 'bg-[#ff6b6b]/10 border-[#ff6b6b]/30 text-[#ff6b6b]' :
+                      details.plan.agent_reviews_json.overallStatus === 'needs_attention' ? 'bg-[#ffc940]/10 border-[#ffc940]/30 text-[#ffc940]' :
+                                                                                            'bg-[#6bff8f]/10 border-[#6bff8f]/30 text-[#6bff8f]'
+                    }`}>
+                      <span>
+                        {details.plan.agent_reviews_json.overallStatus === 'flagged' ? '🔴 Flagged by agents' :
+                         details.plan.agent_reviews_json.overallStatus === 'needs_attention' ? '🟡 Needs attention' : '🟢 All agents approved'}
+                        {(() => { const n = ['nutritionist','fitnessExpert','sportsScientist'].reduce((s, k) => s + (details.plan.agent_reviews_json[k]?.issues?.length || 0), 0); return n > 0 ? ` · ${n} issue${n > 1 ? 's' : ''}` : ''; })()}
+                      </span>
+                      {(() => { const scores = ['nutritionist','fitnessExpert','sportsScientist'].map(k => details.plan.agent_reviews_json[k]?.score).filter(Boolean); return scores.length ? <span>Avg score {Math.round(scores.reduce((a,b)=>a+b,0)/scores.length*10)/10}/10</span> : null; })()}
+                    </div>
+                  )}
 
                   {/* Plan inner tabs: Workout / Diet */}
                   <div className="flex gap-2 p-1 bg-[#060d18] rounded-xl">
@@ -2089,6 +2117,64 @@
                           <ul className="text-xs text-gray-300 space-y-1">{ep.cautions.map((c,i) => <li key={i}>⚠ {c}</li>)}</ul>
                         </div>
                       )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Agent Review Panel */}
+              {details.plan?.agent_reviews_json && (
+                <div className="card space-y-4">
+                  <button onClick={() => setShowAgentReviews(p => !p)} className="w-full flex justify-between items-center">
+                    <h3 className="text-lg font-bold text-white">
+                      <i className="fa-solid fa-robot text-[#6ba4ff] mr-2"></i> AI Agent Reviews
+                    </h3>
+                    <i className={`fa-solid fa-chevron-${showAgentReviews ? 'up' : 'down'} text-gray-400`}></i>
+                  </button>
+                  {showAgentReviews && (
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                      {[
+                        { key: 'nutritionist',   label: 'Nutritionist',     icon: 'fa-bowl-rice' },
+                        { key: 'fitnessExpert',  label: 'Fitness Expert',   icon: 'fa-dumbbell' },
+                        { key: 'sportsScientist',label: 'Sports Scientist', icon: 'fa-flask' },
+                      ].map(({ key, label, icon }) => {
+                        const r = details.plan.agent_reviews_json[key];
+                        if (!r) return null;
+                        const col = r.status === 'approved' ? '#6bff8f' : r.status === 'flagged' ? '#ff6b6b' : r.status === 'skipped' ? '#7a9abf' : '#ffc940';
+                        const emoji = r.status === 'approved' ? '✅' : r.status === 'flagged' ? '🚨' : r.status === 'skipped' ? '⏭' : '⚠️';
+                        return (
+                          <div key={key} className="bg-[#0b1628] rounded-xl p-4 border border-[#1a2e48] space-y-3">
+                            <div className="flex justify-between items-center">
+                              <div className="font-bold text-white text-sm">
+                                <i className={`fa-solid ${icon} mr-2`} style={{color: col}}></i>{label}
+                              </div>
+                              {r.status === 'skipped'
+                                ? <span className="text-xs text-gray-500">Skipped</span>
+                                : <span className="text-xs font-black" style={{color: col}}>{r.score}/10</span>
+                              }
+                            </div>
+                            {r.status === 'skipped'
+                              ? <p className="text-xs text-gray-500 italic">{r.reason || 'Agent was skipped'}</p>
+                              : <>
+                                  <div className="text-xs font-semibold capitalize" style={{color: col}}>{emoji} {r.status?.replace(/_/g,' ')}</div>
+                                  {r.summary && <p className="text-xs text-gray-300 leading-relaxed">{r.summary}</p>}
+                                  {r.issues?.length > 0 && (
+                                    <div>
+                                      <div className="text-[10px] text-[#ff6b6b] font-bold uppercase tracking-widest mb-1">Issues ({r.issues.length})</div>
+                                      <ul className="space-y-1">{r.issues.map((iss, i) => <li key={i} className="text-xs text-gray-300 flex gap-1"><span className="text-[#ff6b6b] shrink-0">•</span><span>{iss}</span></li>)}</ul>
+                                    </div>
+                                  )}
+                                  {r.suggestions?.length > 0 && (
+                                    <div>
+                                      <div className="text-[10px] text-[#6ba4ff] font-bold uppercase tracking-widest mb-1">Suggestions ({r.suggestions.length})</div>
+                                      <ul className="space-y-1">{r.suggestions.map((s, i) => <li key={i} className="text-xs text-gray-300 flex gap-1"><span className="text-[#6ba4ff] shrink-0">•</span><span>{s}</span></li>)}</ul>
+                                    </div>
+                                  )}
+                                </>
+                            }
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
