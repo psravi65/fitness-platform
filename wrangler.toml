@@ -22,4 +22,4 @@ EMAIL_FROM = "GymLog Coaching <onboarding@gymlog.app>"
 GEMINI_TIMEOUT_MS = "30000"
 # Nutrition search: get a free key at https://fdc.nal.usda.gov/api-guide.html
 # If unset, falls back to Open Food Facts (no key required)
-USDA_API_KEY = ""
+USDA_API_KEY = "ythQnzQCC5gU9YeU9BbOCFqvnfqkHoyfa2M9Kt2b"
