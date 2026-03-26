@@ -1699,7 +1699,10 @@ class HttpError extends Error {
 
 function safeJson(value, fallback) {
   try {
-    return typeof value === "string" ? JSON.parse(value) : value;
+    if (typeof value !== "string") return value;
+    // Strip markdown code fences that thinking models add (```json ... ``` or ``` ... ```)
+    const stripped = value.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+    return JSON.parse(stripped);
   } catch {
     return fallback;
   }
