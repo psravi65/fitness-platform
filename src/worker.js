@@ -1112,11 +1112,12 @@ async function callGeminiAgent(env, agentName, systemPrompt, planJson, intakeJso
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: { responseMimeType: "application/json" }
+        contents: [{ role: "user", parts: [{ text: prompt }] }]
       })
     }, Number(env.GEMINI_TIMEOUT_MS) || GEMINI_TIMEOUT_MS);
     if (!res.ok) {
+      const errBody = await res.text().catch(() => "");
+      console.error(`[agent:${agentName}] HTTP ${res.status}`, errBody.slice(0, 500));
       return { status: "skipped", reason: `Agent API error: HTTP ${res.status}`, issues: [], suggestions: [] };
     }
     const data = await res.json();
