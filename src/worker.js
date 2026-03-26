@@ -1,8 +1,21 @@
+// ─── Named constants (replace magic numbers) ────────────────────────────────
+const LOGIN_RATE_LIMIT_MAX       = 10;    // max login attempts before lockout
+const LOGIN_RATE_LIMIT_WINDOW_S  = 60;    // sliding window in seconds
+const PLAN_GEN_RATE_LIMIT_MAX    = 5;     // max plan generations per client per hour
+const PLAN_GEN_RATE_LIMIT_WINDOW_S = 3600;
+const PLAN_GEN_LOCK_TTL_S        = 300;   // in-flight lock TTL (5 min)
+const DEFAULT_CLEAN_MAX_LENGTH   = 200;   // default max chars for clean()
+const GEMINI_TIMEOUT_MS          = 30000; // default Gemini API timeout
+// ────────────────────────────────────────────────────────────────────────────
 
 export default {
   async fetch(request, env, ctx) {
     if (env.APP_URL === "https://your-cloudflare-domain.workers.dev") {
-      console.warn("[config] APP_URL is still the default placeholder. Set it in wrangler.toml.");
+      console.error("[config] FATAL: APP_URL is still the default placeholder. Update it in wrangler.toml before deploying.");
+      return new Response(
+        JSON.stringify({ error: "Server misconfiguration: APP_URL is not set. Contact the administrator." }),
+        { status: 503, headers: { "Content-Type": "application/json" } }
+      );
     }
     if (!env.GEMINI_API_KEY) {
       console.warn("[config] GEMINI_API_KEY is not set. Plans will use the deterministic fallback generator.");
@@ -10,6 +23,11 @@ export default {
     if (!env.RESEND_API_KEY) {
       console.warn("[config] RESEND_API_KEY is not set. Welcome emails will only be logged to console.");
     }
+
+    // Async cleanup: purge expired rate_limit rows without blocking the request
+    ctx.waitUntil(
+      env.DB.prepare(`DELETE FROM rate_limits WHERE window_start < datetime('now', '-1 hour')`).run().catch(() => {})
+    );
 
     try {
       const url = new URL(request.url);
@@ -54,6 +72,16 @@ self.addEventListener('fetch', e => {
 
 async function handleApi(request, env, ctx, url) {
   const method = request.method.toUpperCase();
+
+  // CSRF protection: all state-mutating requests must include this header.
+  // Browsers never send X-Requested-With on cross-origin requests, so its
+  // presence proves the request was initiated by our SPA, not a third-party site.
+  if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
+    if (request.headers.get("X-Requested-With") !== "XMLHttpRequest") {
+      return json({ error: "Forbidden: missing CSRF header." }, 403);
+    }
+  }
+
   const session = await getSession(request, env);
 
   if (
@@ -84,7 +112,7 @@ async function handleApi(request, env, ctx, url) {
       return json({ error: "Admin already exists." }, 409);
     }
     const body = await readJson(request);
-    const username = clean(body.username);
+    const username = clean(body.username, 50);
     const password = String(body.password || "");
     const isSuperAdmin = body.superadmin === true;
     if (!username || password.length < 8) {
@@ -99,11 +127,11 @@ async function handleApi(request, env, ctx, url) {
 
   if (url.pathname === "/api/auth/login" && method === "POST") {
     const ip = request.headers.get("CF-Connecting-IP") || "unknown";
-    const limited = await checkRateLimit(env, `login:${ip}`, 10, 60);
+    const limited = await checkRateLimit(env, `login:${ip}`, LOGIN_RATE_LIMIT_MAX, LOGIN_RATE_LIMIT_WINDOW_S);
     if (limited) return json({ error: "Too many login attempts. Please wait a minute and try again." }, 429);
 
     const body = await readJson(request);
-    const username = clean(body.username);
+    const username = clean(body.username, 50);
     const password = String(body.password || "");
     if (!username || !password) return json({ error: "Username and password are required." }, 400);
 
@@ -174,7 +202,7 @@ async function handleApi(request, env, ctx, url) {
       GROUP BY gyms.id
       ORDER BY gyms.created_at DESC
     `).all();
-    const totalClients = await env.DB.prepare(`SELECT COUNT(*) AS count FROM clients`).first();
+    const totalClients = await env.DB.prepare(`SELECT COUNT(*) AS count FROM clients WHERE deleted_at IS NULL`).first();
     const totalPlans = await env.DB.prepare(`SELECT COUNT(*) AS count FROM plans WHERE status = 'published'`).first();
     return json({
       gyms: gyms.results || [],
@@ -189,12 +217,12 @@ async function handleApi(request, env, ctx, url) {
   if (url.pathname === "/api/superadmin/gyms" && method === "POST") {
     assertRole(session, "superadmin");
     const body = await readJson(request);
-    const gymName = clean(body.gymName);
-    const ownerName = clean(body.ownerName);
-    const email = clean(body.email);
-    const phone = clean(body.phone || "");
-    const city = clean(body.city || "");
-    const adminUsername = clean(body.adminUsername);
+    const gymName = clean(body.gymName, 100);
+    const ownerName = clean(body.ownerName, 100);
+    const email = clean(body.email, 254);
+    const phone = clean(body.phone || "", 30);
+    const city = clean(body.city || "", 100);
+    const adminUsername = clean(body.adminUsername, 50);
     if (!gymName || !ownerName || !adminUsername) {
       return json({ error: "Gym name, owner name and admin username are required." }, 400);
     }
@@ -224,10 +252,10 @@ async function handleApi(request, env, ctx, url) {
         COALESCE((SELECT status FROM plans WHERE client_id = clients.id ORDER BY updated_at DESC LIMIT 1), 'none') AS plan_status,
         (SELECT log_date FROM daily_logs WHERE client_id = clients.id ORDER BY log_date DESC LIMIT 1) AS last_log_date
       FROM clients LEFT JOIN users ON users.client_id = clients.id
-      WHERE clients.gym_id = ? ORDER BY clients.created_at DESC
+      WHERE clients.deleted_at IS NULL AND clients.gym_id = ? ORDER BY clients.created_at DESC
     `).bind(gymId).all();
     const admin = await env.DB.prepare(`SELECT id, username FROM users WHERE gym_id = ? AND role = 'admin' LIMIT 1`).bind(gymId).first();
-    const unassignedRow = await env.DB.prepare(`SELECT COUNT(*) AS count FROM clients WHERE gym_id IS NULL`).first();
+    const unassignedRow = await env.DB.prepare(`SELECT COUNT(*) AS count FROM clients WHERE gym_id IS NULL AND deleted_at IS NULL`).first();
     return json({ gym, clients: clients.results || [], admin, unassignedCount: Number(unassignedRow?.count || 0) });
   }
 
@@ -246,7 +274,7 @@ async function handleApi(request, env, ctx, url) {
   if (superadminClaimMatch && method === "POST") {
     assertRole(session, "superadmin");
     const gId = superadminClaimMatch[1];
-    const unassigned = await env.DB.prepare(`SELECT COUNT(*) AS count FROM clients WHERE gym_id IS NULL`).first();
+    const unassigned = await env.DB.prepare(`SELECT COUNT(*) AS count FROM clients WHERE gym_id IS NULL AND deleted_at IS NULL`).first();
     const count = Number(unassigned?.count || 0);
     if (count === 0) return json({ ok: true, claimed: 0 });
     await env.DB.batch([
@@ -271,7 +299,7 @@ async function handleApi(request, env, ctx, url) {
     const stats = await env.DB.prepare(`
       SELECT
         (SELECT COUNT(*) FROM gyms WHERE status = 'active') AS active_gyms,
-        (SELECT COUNT(*) FROM clients) AS total_clients,
+        (SELECT COUNT(*) FROM clients WHERE deleted_at IS NULL) AS total_clients,
         (SELECT COUNT(*) FROM plans WHERE status = 'published') AS active_plans,
         (SELECT COUNT(*) FROM daily_logs WHERE date(updated_at) = date('now')) AS logs_today
     `).first();
@@ -282,8 +310,8 @@ async function handleApi(request, env, ctx, url) {
     assertRole(session, "admin");
     const gymId = getGymId(session);
     const rows = gymId
-      ? await env.DB.prepare(`SELECT clients.id, clients.full_name, clients.household_id, users.username FROM clients LEFT JOIN users ON users.client_id = clients.id WHERE clients.gym_id = ? ORDER BY clients.full_name ASC`).bind(gymId).all()
-      : await env.DB.prepare(`SELECT clients.id, clients.full_name, clients.household_id, users.username FROM clients LEFT JOIN users ON users.client_id = clients.id ORDER BY clients.full_name ASC`).all();
+      ? await env.DB.prepare(`SELECT clients.id, clients.full_name, clients.household_id, users.username FROM clients LEFT JOIN users ON users.client_id = clients.id WHERE clients.deleted_at IS NULL AND clients.gym_id = ? ORDER BY clients.full_name ASC`).bind(gymId).all()
+      : await env.DB.prepare(`SELECT clients.id, clients.full_name, clients.household_id, users.username FROM clients LEFT JOIN users ON users.client_id = clients.id WHERE clients.deleted_at IS NULL ORDER BY clients.full_name ASC`).all();
     return json({ clients: rows.results || [] });
   }
 
@@ -303,7 +331,7 @@ async function handleApi(request, env, ctx, url) {
         (SELECT notes FROM checkins WHERE client_id = clients.id AND TRIM(COALESCE(notes, '')) <> '' ORDER BY updated_at DESC LIMIT 1) AS latest_checkin_note
       FROM clients
       LEFT JOIN users ON users.client_id = clients.id
-      ${gymId ? "WHERE clients.gym_id = ?" : ""}
+      WHERE clients.deleted_at IS NULL ${gymId ? "AND clients.gym_id = ?" : ""}
       ORDER BY clients.created_at DESC
     `).bind(...(gymId ? [gymId] : [])).all();
     const clients = (rows.results || []).map((client) => ({
@@ -316,8 +344,9 @@ async function handleApi(request, env, ctx, url) {
   if (url.pathname === "/api/admin/clients" && method === "POST") {
     assertRole(session, "admin");
     const body = await readJson(request);
-    const fullName = clean(body.fullName);
-    const username = clean(body.username);
+    const fullName = clean(body.fullName, 100);
+    const username = clean(body.username, 50);
+    const email = clean(body.email || "", 254);
     if (!fullName || !username) return json({ error: "Full name and username are required." }, 400);
 
     const existing = await env.DB.prepare(`SELECT id FROM users WHERE username = ?`).bind(username).first();
@@ -334,6 +363,10 @@ async function handleApi(request, env, ctx, url) {
       env.DB.prepare(`INSERT INTO users (id, username, password_hash, role, client_id, gym_id, must_change_password) VALUES (?, ?, ?, 'client', ?, ?, 1)`).bind(userId, username, hash, clientId, clientGymId)
     ]);
 
+    if (email) {
+      await sendWelcomeEmail(env, email, fullName, username, tempPassword);
+    }
+
     return json({ ok: true, clientId, temporaryPassword: tempPassword });
   }
 
@@ -347,7 +380,7 @@ async function handleApi(request, env, ctx, url) {
   if (adminClientMatch && method === "DELETE") {
     assertRole(session, "admin");
     await assertClientBelongsToGym(env, session, adminClientMatch[1]);
-    await env.DB.prepare(`DELETE FROM clients WHERE id = ?`).bind(adminClientMatch[1]).run();
+    await env.DB.prepare(`UPDATE clients SET deleted_at = datetime('now') WHERE id = ?`).bind(adminClientMatch[1]).run();
     await writeAuditLog(env, session, "client.delete", adminClientMatch[1]);
     return json({ ok: true });
   }
@@ -417,6 +450,19 @@ async function handleApi(request, env, ctx, url) {
     assertRole(session, "admin");
     const clientId = generatePlanMatch[1];
     await assertClientBelongsToGym(env, session, clientId);
+    const planGenLimited = await checkRateLimit(env, `generate-plan:${clientId}`, PLAN_GEN_RATE_LIMIT_MAX, PLAN_GEN_RATE_LIMIT_WINDOW_S);
+    if (planGenLimited) return json({ error: "Plan generation limit reached for this client. Please wait before generating again." }, 429);
+
+    // Concurrency guard: prevent two simultaneous generations for the same client
+    const lockKey = `plan-in-flight:${clientId}`;
+    const lockTtl = PLAN_GEN_LOCK_TTL_S;
+    const lockRecord = await env.DB.prepare(`SELECT attempts, window_start FROM rate_limits WHERE key = ?`).bind(lockKey).first();
+    const lockActive = lockRecord && (Date.now() - new Date(lockRecord.window_start).getTime() < lockTtl * 1000);
+    if (lockActive) return json({ error: "Plan generation is already in progress for this client." }, 409);
+    await env.DB.prepare(`INSERT OR REPLACE INTO rate_limits (key, attempts, window_start) VALUES (?, 1, ?)`).bind(lockKey, new Date().toISOString()).run();
+
+    let normalized, draftReviews, finalPlan, finalReviews;
+    try {
     const intake = await getLatestIntake(env, clientId);
     if (!intake) return json({ error: "Client intake is required before generating a plan." }, 400);
     const progressContext = await getProgressContext(env, clientId);
@@ -424,14 +470,25 @@ async function handleApi(request, env, ctx, url) {
     // ── Household context: find reference member's plan if household exists
     const householdContext = await getHouseholdContext(env, clientId);
 
-    const normalized = await generatePlanFromIntake(env, intake.answers_json, progressContext, householdContext);
-    const draftReviews = await runAgentPipeline(env, intake.answers_json, normalized, householdContext);
-    const finalPlan = await refinePlanWithAgentFeedback(env, intake.answers_json, normalized, draftReviews, progressContext, householdContext);
-    const finalReviews = await runAgentPipeline(env, intake.answers_json, finalPlan, householdContext);
+    normalized = await generatePlanFromIntake(env, intake.answers_json, progressContext, householdContext);
+    draftReviews = await runAgentPipeline(env, intake.answers_json, normalized, householdContext);
+    finalPlan = await refinePlanWithAgentFeedback(env, intake.answers_json, normalized, draftReviews, progressContext, householdContext);
+    finalReviews = await runAgentPipeline(env, intake.answers_json, finalPlan, householdContext);
     finalReviews.refinedFrom = draftReviews;
-    if (householdContext) finalReviews.householdAware = true;
+    if (householdContext) {
+      finalReviews.householdAware = true;
+      const mealMismatch = validateHouseholdMealAlignment(finalPlan, householdContext);
+      if (mealMismatch.length > 0) {
+        console.warn("[household] Meal alignment mismatch for client", clientId, "- mismatched dishes:", mealMismatch);
+        finalReviews.householdMealMismatch = mealMismatch;
+      }
+    }
     await saveDraftPlan(env, clientId, intake.id, finalPlan, finalReviews);
     await writeAuditLog(env, session, "plan.generate", clientId, { intakeId: intake.id, householdAware: !!householdContext });
+    } finally {
+      // Always release the in-flight lock so retries aren't permanently blocked
+      await env.DB.prepare(`DELETE FROM rate_limits WHERE key = ?`).bind(lockKey).run().catch(() => {});
+    }
     return json({ ok: true });
   }
 
@@ -535,17 +592,18 @@ async function handleApi(request, env, ctx, url) {
     const scope = gymId ? "AND clients.gym_id = ?" : "";
     const b = gymId ? [gymId] : [];
     const [total, loggedThisWeek, inactive14d, unpublished, noCheckin14d, needsReplanRows] = await Promise.all([
-      env.DB.prepare(`SELECT COUNT(*) as n FROM clients WHERE 1=1 ${scope}`).bind(...b).first(),
-      env.DB.prepare(`SELECT COUNT(DISTINCT dl.client_id) as n FROM daily_logs dl JOIN clients ON clients.id = dl.client_id WHERE dl.log_date >= date('now','-7 days') ${scope}`).bind(...b).first(),
-      env.DB.prepare(`SELECT COUNT(*) as n FROM clients WHERE NOT EXISTS (SELECT 1 FROM daily_logs WHERE client_id = clients.id AND log_date >= date('now','-14 days')) ${scope}`).bind(...b).first(),
-      env.DB.prepare(`SELECT COUNT(*) as n FROM clients WHERE EXISTS (SELECT 1 FROM plans WHERE client_id = clients.id AND status = 'draft') ${scope}`).bind(...b).first(),
-      env.DB.prepare(`SELECT COUNT(*) as n FROM clients WHERE EXISTS (SELECT 1 FROM plans WHERE client_id = clients.id AND status = 'published') AND NOT EXISTS (SELECT 1 FROM checkins WHERE client_id = clients.id AND checkin_date >= date('now','-14 days')) ${scope}`).bind(...b).first(),
+      env.DB.prepare(`SELECT COUNT(*) as n FROM clients WHERE deleted_at IS NULL ${scope}`).bind(...b).first(),
+      env.DB.prepare(`SELECT COUNT(DISTINCT dl.client_id) as n FROM daily_logs dl JOIN clients ON clients.id = dl.client_id WHERE clients.deleted_at IS NULL AND dl.log_date >= date('now','-7 days') ${scope}`).bind(...b).first(),
+      env.DB.prepare(`SELECT COUNT(*) as n FROM clients WHERE deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM daily_logs WHERE client_id = clients.id AND log_date >= date('now','-14 days')) ${scope}`).bind(...b).first(),
+      env.DB.prepare(`SELECT COUNT(*) as n FROM clients WHERE deleted_at IS NULL AND EXISTS (SELECT 1 FROM plans WHERE client_id = clients.id AND status = 'draft') ${scope}`).bind(...b).first(),
+      env.DB.prepare(`SELECT COUNT(*) as n FROM clients WHERE deleted_at IS NULL AND EXISTS (SELECT 1 FROM plans WHERE client_id = clients.id AND status = 'published') AND NOT EXISTS (SELECT 1 FROM checkins WHERE client_id = clients.id AND checkin_date >= date('now','-14 days')) ${scope}`).bind(...b).first(),
       env.DB.prepare(`
         SELECT clients.id, clients.full_name, users.username,
           (SELECT MAX(checkin_date) FROM checkins WHERE client_id = clients.id) as last_checkin_date
         FROM clients
         LEFT JOIN users ON users.client_id = clients.id AND users.role = 'client'
-        WHERE EXISTS (SELECT 1 FROM plans WHERE client_id = clients.id AND status = 'published')
+        WHERE clients.deleted_at IS NULL
+        AND EXISTS (SELECT 1 FROM plans WHERE client_id = clients.id AND status = 'published')
         AND NOT EXISTS (SELECT 1 FROM checkins WHERE client_id = clients.id AND checkin_date >= date('now','-21 days'))
         ${scope}
         ORDER BY CASE WHEN (SELECT MAX(checkin_date) FROM checkins WHERE client_id = clients.id) IS NULL THEN 0 ELSE 1 END ASC,
@@ -680,12 +738,12 @@ function getGymId(session) {
 async function assertClientBelongsToGym(env, session, clientId) {
   const gymId = getGymId(session);
   if (!gymId) return; // superadmin bypasses gym scope check
-  const client = await env.DB.prepare(`SELECT id FROM clients WHERE id = ? AND gym_id = ?`).bind(clientId, gymId).first();
+  const client = await env.DB.prepare(`SELECT id FROM clients WHERE id = ? AND gym_id = ? AND deleted_at IS NULL`).bind(clientId, gymId).first();
   if (!client) throw new HttpError("Client not found.", 404);
 }
 
 async function getAdminClientDetail(env, clientId) {
-  const client = await env.DB.prepare(`SELECT * FROM clients WHERE id = ? LIMIT 1`).bind(clientId).first();
+  const client = await env.DB.prepare(`SELECT * FROM clients WHERE id = ? AND deleted_at IS NULL LIMIT 1`).bind(clientId).first();
   if (!client) throw new HttpError("Client not found.", 404);
   const user = await env.DB.prepare(`SELECT id, username, must_change_password FROM users WHERE client_id = ? AND role = 'client' LIMIT 1`).bind(clientId).first();
   const intake = await getLatestIntake(env, clientId);
@@ -698,7 +756,7 @@ async function getAdminClientDetail(env, clientId) {
     SELECT clients.id, clients.full_name, users.username
     FROM clients
     LEFT JOIN users ON users.client_id = clients.id AND users.role = 'client'
-    WHERE clients.household_id = ? AND clients.id != ?
+    WHERE clients.deleted_at IS NULL AND clients.household_id = ? AND clients.id != ?
   `).bind(client.household_id, clientId).all()).results : [];
 
   return { client, user, intake, plan, dailyLogs, checkins, weeklyReview: parseStoredJsonRow(weeklyReview), householdMembers };
@@ -717,7 +775,7 @@ async function getClientBootstrap(env, clientId) {
   if (client?.household_id) {
     const householdMembers = await env.DB.prepare(`
       SELECT clients.id, clients.full_name FROM clients
-      WHERE household_id = ? AND id != ?
+      WHERE deleted_at IS NULL AND household_id = ? AND id != ?
     `).bind(client.household_id, clientId).all();
     if (householdMembers.results?.length > 0) {
       // Find the household member with a published plan to base portions on
@@ -937,8 +995,8 @@ async function exportToGoogleSheets(env, clientId) {
 
 async function buildExportPayload(env, clientId) {
   const clients = clientId
-    ? [await env.DB.prepare(`SELECT * FROM clients WHERE id = ?`).bind(clientId).first()]
-    : (await env.DB.prepare(`SELECT * FROM clients ORDER BY created_at DESC`).all()).results;
+    ? [await env.DB.prepare(`SELECT * FROM clients WHERE id = ? AND deleted_at IS NULL`).bind(clientId).first()]
+    : (await env.DB.prepare(`SELECT * FROM clients WHERE deleted_at IS NULL ORDER BY created_at DESC`).all()).results;
 
   const output = [];
   for (const client of clients.filter(Boolean)) {
@@ -987,7 +1045,7 @@ async function getHouseholdContext(env, clientId) {
   // Get all household members except current client
   const members = await env.DB.prepare(`
     SELECT id, full_name, household_id FROM clients
-    WHERE (household_id = ? OR household_id = ?) AND id != ?
+    WHERE deleted_at IS NULL AND (household_id = ? OR household_id = ?) AND id != ?
   `).bind(householdId, householdId + ":base", clientId).all();
 
   if (!members.results?.length) return null;
@@ -1058,7 +1116,7 @@ async function callGeminiAgent(env, agentName, systemPrompt, planJson, intakeJso
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         generationConfig: { responseMimeType: "application/json" }
       })
-    }, Number(env.GEMINI_TIMEOUT_MS) || 30000);
+    }, Number(env.GEMINI_TIMEOUT_MS) || GEMINI_TIMEOUT_MS);
     if (!res.ok) {
       return { status: "skipped", reason: `Agent API error: HTTP ${res.status}`, issues: [], suggestions: [] };
     }
@@ -1228,7 +1286,7 @@ async function refinePlanWithAgentFeedback(env, intake, plan, agentReviews, prog
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         generationConfig: { responseMimeType: "application/json" }
       })
-    }, Number(env.GEMINI_TIMEOUT_MS) || 30000);
+    }, Number(env.GEMINI_TIMEOUT_MS) || GEMINI_TIMEOUT_MS);
     if (!res.ok) return plan;
     const data = await res.json();
     const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("") || "";
@@ -1304,7 +1362,7 @@ async function generatePlanFromIntake(env, intake, progressContext = {}, househo
         responseMimeType: "application/json"
       }
     })
-  }, Number(env.GEMINI_TIMEOUT_MS) || 30000);
+  }, Number(env.GEMINI_TIMEOUT_MS) || GEMINI_TIMEOUT_MS);
 
   if (!res.ok) {
     return fallbackPlanFromIntake(intake, {
@@ -1533,15 +1591,17 @@ async function readJson(request) {
   }
 }
 
-function clean(value) {
-  return String(value || "").trim();
+function clean(value, maxLength = DEFAULT_CLEAN_MAX_LENGTH) {
+  const s = String(value || "").trim();
+  if (s.length > maxLength) throw new HttpError(`Input too long (max ${maxLength} characters).`, 400);
+  return s;
 }
 
 function nowIso() {
   return new Date().toISOString();
 }
 
-function fetchWithTimeout(url, options, timeoutMs = 30000) {
+function fetchWithTimeout(url, options, timeoutMs = GEMINI_TIMEOUT_MS) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   return fetch(url, { ...options, signal: controller.signal })
@@ -1562,7 +1622,7 @@ async function writeAuditLog(env, session, action, targetId, meta = {}) {
       JSON.stringify(meta)
     ).run();
   } catch (err) {
-    console.error("[audit] Failed to write audit log:", err.message);
+    console.error("[audit] Failed to write audit log — action:", action, "target:", targetId, "error:", err.message, err.stack);
   }
 }
 
@@ -1584,8 +1644,9 @@ async function checkRateLimit(env, key, maxAttempts, windowSeconds) {
       `UPDATE rate_limits SET attempts = attempts + 1 WHERE key = ?`
     ).bind(key).run();
     return false; // not limited
-  } catch {
-    return false; // fail open — don't block requests if rate-limit table is unavailable
+  } catch (err) {
+    console.error("[rate-limit] DB error — failing closed to prevent brute force bypass:", err.message);
+    return true; // fail closed — block requests if rate-limit table is unavailable
   }
 }
 
@@ -1621,6 +1682,21 @@ function daysSinceDate(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return Infinity;
   return Math.floor((Date.now() - date.getTime()) / 86400000);
+}
+
+function validateHouseholdMealAlignment(plan, householdContext) {
+  const mismatches = [];
+  const baseMeals = householdContext?.basePlan?.mealOptions;
+  const generatedMeals = plan?.mealOptions;
+  if (!Array.isArray(baseMeals) || !Array.isArray(generatedMeals)) return mismatches;
+  const baseDishes = new Set(baseMeals.map(m => String(m?.name || m || "").toLowerCase().trim()));
+  for (const meal of generatedMeals) {
+    const dish = String(meal?.name || meal || "").toLowerCase().trim();
+    if (dish && !baseDishes.has(dish)) {
+      mismatches.push(dish);
+    }
+  }
+  return mismatches;
 }
 
 function trimForStorage(value, limit = 500) {
