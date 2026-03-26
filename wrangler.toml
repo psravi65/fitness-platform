@@ -16,7 +16,7 @@ migrations_dir = "migrations"
 [vars]
 APP_NAME = "Fitness Platform"
 GEMINI_MODEL = "gemini-2.5-flash"
-GEMINI_API_KEY = "YOUR_GEMINI_API_KEY_HERE"
+# GEMINI_API_KEY — set this as a Secret in the Cloudflare dashboard (never put real keys here)
 COOKIE_SECURE = "true"
 APP_URL = "https://your-cloudflare-domain.workers.dev"
 EMAIL_FROM = "GymLog Coaching <onboarding@gymlog.app>"
