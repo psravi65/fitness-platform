@@ -1039,28 +1039,31 @@
 
       const handleAddFood = (e) => {
         e.preventDefault();
+        let newFoods;
         if (isCustom) {
           if (selectedNutrition && scaledMacros) {
-            setLoggedFoods([...loggedFoods, { name: `${searchQuery} (${servingGrams}g)`, type: 'nutrition', calories: scaledMacros.calories, protein: scaledMacros.protein, carbs: scaledMacros.carbs, fat: scaledMacros.fat }]);
+            newFoods = [...loggedFoods, { name: `${searchQuery} (${servingGrams}g)`, type: 'nutrition', calories: scaledMacros.calories, protein: scaledMacros.protein, carbs: scaledMacros.carbs, fat: scaledMacros.fat }];
           } else if (searchQuery.trim()) {
-            setLoggedFoods([...loggedFoods, { name: searchQuery.trim(), type: 'custom', calories: 0, protein: 0, carbs: 0, fat: 0 }]);
+            newFoods = [...loggedFoods, { name: searchQuery.trim(), type: 'custom', calories: 0, protein: 0, carbs: 0, fat: 0 }];
           } else return;
           setSearchQuery(""); setSelectedNutrition(null); setSearchResults([]);
         } else {
           const match = aiFoodFlat.find(o => o.label === selectedAiFood);
           if (!match) return;
-          setLoggedFoods([...loggedFoods, { name: match.label, type: 'ai', calories: match.calories, protein: match.protein, carbs: match.carbs || 0, fat: match.fat || 0 }]);
+          newFoods = [...loggedFoods, { name: match.label, type: 'ai', calories: match.calories, protein: match.protein, carbs: match.carbs || 0, fat: match.fat || 0 }];
           setSelectedAiFood("");
         }
         setIsCustom(false);
+        setLoggedFoods(newFoods);
+        handleSaveLog(newFoods, true);
       };
 
-      const handleSaveLog = async () => {
+      const handleSaveLog = async (foods = loggedFoods, silent = false) => {
         setSaving(true);
         try {
           const date = getLocalDate();
           const existingWorkout = appData?.dailyLog?.workout_json || {};
-          const macroTotals = loggedFoods.reduce((acc, f) => ({
+          const macroTotals = foods.reduce((acc, f) => ({
             calories: acc.calories + (f.calories || 0),
             protein:  Math.round((acc.protein  + (f.protein  || 0)) * 10) / 10,
             carbs:    Math.round((acc.carbs    + (f.carbs    || 0)) * 10) / 10,
@@ -1068,10 +1071,10 @@
           }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
           await api(`/api/app/daily-log/${date}`, {
             method: 'PUT',
-            body: JSON.stringify({ meals: { loggedFoods }, workout: existingWorkout, macros: macroTotals })
+            body: JSON.stringify({ meals: { loggedFoods: foods }, workout: existingWorkout, macros: macroTotals })
           });
-          setFlash({ msg: "Diet log saved successfully!" });
-          if (onSaved) onSaved(); // ← refresh home page calorie bars
+          if (!silent) setFlash({ msg: "Diet log saved!" });
+          if (onSaved) onSaved();
         } catch (err) { setFlash({ err: err.message }); }
         setSaving(false);
       };
@@ -1269,15 +1272,20 @@
                     </span>
                   )}
                 </div>
-                <button type="button" onClick={() => setLoggedFoods(loggedFoods.filter((_, idx) => idx !== i))} className="text-red-400 p-2 hover:bg-red-500/10 rounded-lg transition-colors"><i className="fa-solid fa-trash text-xs"></i></button>
+                <button type="button" onClick={() => { const updated = loggedFoods.filter((_, idx) => idx !== i); setLoggedFoods(updated); handleSaveLog(updated, true); }} className="text-red-400 p-2 hover:bg-red-500/10 rounded-lg transition-colors"><i className="fa-solid fa-trash text-xs"></i></button>
               </div>
             ))}
             {loggedFoods.length === 0 && <p className="text-xs text-gray-500 pl-2">Nothing tracked yet.</p>}
           </div>
           
-          <button onClick={handleSaveLog} disabled={saving || loggedFoods.length === 0} className="bg-transparent border border-[#6bff8f]/30 text-[#6bff8f] font-bold py-3 rounded-xl w-full mt-4 hover:bg-[#6bff8f]/10 transition-colors">
-            {saving ? 'Saving...' : 'Save & Sync Log'}
-          </button>
+          <div className="flex items-center justify-center gap-2 mt-2">
+            {saving
+              ? <span className="text-[10px] text-gray-500"><i className="fa-solid fa-spinner fa-spin mr-1"></i>Saving…</span>
+              : <button onClick={() => handleSaveLog()} disabled={loggedFoods.length === 0} className="text-[10px] text-gray-600 hover:text-gray-400 transition-colors disabled:opacity-30">
+                  <i className="fa-solid fa-rotate mr-1"></i>Force sync
+                </button>
+            }
+          </div>
         </div>
       );
     };
