@@ -940,12 +940,19 @@
     };
 
     const ClientDietView = ({ appData, setFlash, onSaved }) => {
-      const [customFood, setCustomFood] = useState("");
       const [selectedAiFood, setSelectedAiFood] = useState("");
       const [isCustom, setIsCustom] = useState(false);
       const [loggedFoods, setLoggedFoods] = useState([]);
       const [saving, setSaving] = useState(false);
       const [hasSynced, setHasSynced] = useState(false);
+      // Nutrition search state
+      const [searchQuery, setSearchQuery] = useState("");
+      const [searchResults, setSearchResults] = useState([]);
+      const [searching, setSearching] = useState(false);
+      const [searchSource, setSearchSource] = useState(null);
+      const [selectedNutrition, setSelectedNutrition] = useState(null); // {name,calories,protein,carbs,fat,per}
+      const [servingGrams, setServingGrams] = useState(100);
+      const debounceRef = useRef(null);
 
       useEffect(() => {
         const loadedMeals = appData?.dailyLog?.meals_json?.loggedFoods || appData?.dailyLog?.diet_json?.loggedFoods;
@@ -997,17 +1004,51 @@
         aiFoodOptions.flatMap(g => g.items),
       [aiFoodOptions]);
 
+      const handleSearchInput = (val) => {
+        setSearchQuery(val);
+        setSelectedNutrition(null);
+        setSearchResults([]);
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        if (val.trim().length < 2) { setSearching(false); return; }
+        setSearching(true);
+        debounceRef.current = setTimeout(async () => {
+          try {
+            const res = await api(`/api/nutrition/search?q=${encodeURIComponent(val.trim())}`);
+            setSearchResults(res.results || []);
+            setSearchSource(res.source);
+          } catch { setSearchResults([]); }
+          setSearching(false);
+        }, 500);
+      };
+
+      const handleSelectNutritionResult = (item) => {
+        setSelectedNutrition(item);
+        setSearchQuery(item.name);
+        setSearchResults([]);
+        setServingGrams(100);
+      };
+
+      const scaledMacros = selectedNutrition ? {
+        calories: Math.round(selectedNutrition.calories * servingGrams / 100),
+        protein:  Math.round(selectedNutrition.protein  * servingGrams / 100 * 10) / 10,
+        carbs:    Math.round(selectedNutrition.carbs    * servingGrams / 100 * 10) / 10,
+        fat:      Math.round(selectedNutrition.fat      * servingGrams / 100 * 10) / 10,
+      } : null;
+
       const handleAddFood = (e) => {
         e.preventDefault();
         if (isCustom) {
-           if(!customFood.trim()) return;
-           setLoggedFoods([...loggedFoods, { name: customFood, type: 'custom', calories: 0, protein: 0 }]);
-           setCustomFood("");
+          if (selectedNutrition && scaledMacros) {
+            setLoggedFoods([...loggedFoods, { name: `${searchQuery} (${servingGrams}g)`, type: 'nutrition', calories: scaledMacros.calories, protein: scaledMacros.protein, carbs: scaledMacros.carbs, fat: scaledMacros.fat }]);
+          } else if (searchQuery.trim()) {
+            setLoggedFoods([...loggedFoods, { name: searchQuery.trim(), type: 'custom', calories: 0, protein: 0, carbs: 0, fat: 0 }]);
+          } else return;
+          setSearchQuery(""); setSelectedNutrition(null); setSearchResults([]);
         } else {
-           const match = aiFoodFlat.find(o => o.label === selectedAiFood);
-           if (!match) return;
-           setLoggedFoods([...loggedFoods, { name: match.label, type: 'ai', calories: match.calories, protein: match.protein }]);
-           setSelectedAiFood("");
+          const match = aiFoodFlat.find(o => o.label === selectedAiFood);
+          if (!match) return;
+          setLoggedFoods([...loggedFoods, { name: match.label, type: 'ai', calories: match.calories, protein: match.protein, carbs: match.carbs || 0, fat: match.fat || 0 }]);
+          setSelectedAiFood("");
         }
         setIsCustom(false);
       };
@@ -1017,9 +1058,15 @@
         try {
           const date = getLocalDate();
           const existingWorkout = appData?.dailyLog?.workout_json || {};
+          const macroTotals = loggedFoods.reduce((acc, f) => ({
+            calories: acc.calories + (f.calories || 0),
+            protein:  Math.round((acc.protein  + (f.protein  || 0)) * 10) / 10,
+            carbs:    Math.round((acc.carbs    + (f.carbs    || 0)) * 10) / 10,
+            fat:      Math.round((acc.fat      + (f.fat      || 0)) * 10) / 10,
+          }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
           await api(`/api/app/daily-log/${date}`, {
             method: 'PUT',
-            body: JSON.stringify({ meals: { loggedFoods }, workout: existingWorkout })
+            body: JSON.stringify({ meals: { loggedFoods }, workout: existingWorkout, macros: macroTotals })
           });
           setFlash({ msg: "Diet log saved successfully!" });
           if (onSaved) onSaved(); // ← refresh home page calorie bars
@@ -1088,15 +1135,62 @@
               </select>
 
               {isCustom && (
-                <input 
-                  value={customFood} 
-                  onChange={e => setCustomFood(e.target.value)} 
-                  placeholder="e.g. 1 Apple, Protein Shake..." 
-                  className="bg-[#0b1628] border-white/10 text-white text-sm focus:border-[#6bff8f] transition-colors" 
-                  autoFocus
-                />
+                <div className="flex flex-col gap-2">
+                  {/* Search input */}
+                  <div className="relative">
+                    <input
+                      value={searchQuery}
+                      onChange={e => handleSearchInput(e.target.value)}
+                      placeholder="Search food (e.g. chicken breast, oats...)"
+                      className="bg-[#0b1628] border-white/10 text-white text-sm focus:border-[#6bff8f] transition-colors w-full pr-8"
+                      autoFocus
+                      autoComplete="off"
+                    />
+                    {searching && <i className="fa-solid fa-spinner fa-spin absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>}
+                  </div>
+
+                  {/* Search results dropdown */}
+                  {searchResults.length > 0 && (
+                    <div className="bg-[#0b1628] border border-[#1a2e48] rounded-xl overflow-hidden shadow-xl">
+                      {searchResults.map((r, i) => (
+                        <button key={i} type="button" onClick={() => handleSelectNutritionResult(r)}
+                          className="w-full text-left px-4 py-3 hover:bg-[#142642] transition-colors border-b border-[#1a2e48] last:border-0">
+                          <div className="text-sm text-white font-medium truncate">{r.name}</div>
+                          <div className="text-[10px] text-gray-400 mt-0.5 font-mono">
+                            {r.calories} kcal · {r.protein}g P · {r.carbs}g C · {r.fat}g F <span className="text-gray-600">per 100g</span>
+                          </div>
+                        </button>
+                      ))}
+                      <div className="px-4 py-2 bg-[#060d18] text-[9px] text-gray-600 uppercase tracking-widest font-bold">
+                        {searchSource === 'usda' ? 'Source: USDA FoodData Central' : searchSource === 'openfoodfacts' ? 'Source: Open Food Facts' : 'Nutrition data'}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Serving size + scaled macros */}
+                  {selectedNutrition && scaledMacros && (
+                    <div className="bg-[#0b1628] border border-[#6bff8f]/20 rounded-xl p-4 space-y-3">
+                      <div className="flex items-center gap-3">
+                        <label className="text-xs text-gray-400 font-bold uppercase tracking-widest whitespace-nowrap">Serving (g)</label>
+                        <input
+                          type="number" min="1" max="2000" value={servingGrams}
+                          onChange={e => setServingGrams(Math.max(1, Number(e.target.value) || 100))}
+                          className="bg-[#1a1919] border-white/10 text-white text-sm w-24 text-center"
+                        />
+                      </div>
+                      <div className="grid grid-cols-4 gap-2 text-center">
+                        {[['Kcal','calories','text-[#ffc940]'],['Protein','protein','text-[#00cba8]'],['Carbs','carbs','text-[#6ba4ff]'],['Fat','fat','text-[#ff6b6b]']].map(([label, key, color]) => (
+                          <div key={key} className="bg-[#1a1919] rounded-xl p-2">
+                            <div className={`text-sm font-black ${color}`}>{scaledMacros[key]}</div>
+                            <div className="text-[9px] text-gray-500 uppercase tracking-widest mt-0.5">{label}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
-              <button type="submit" disabled={(!isCustom && !selectedAiFood) || (isCustom && !customFood.trim())} className="action-btn w-full text-sm py-3 mt-1">Add to Daily Log</button>
+              <button type="submit" disabled={(!isCustom && !selectedAiFood) || (isCustom && !searchQuery.trim())} className="action-btn w-full text-sm py-3 mt-1">Add to Daily Log</button>
             </form>
           </div>
 
@@ -1106,7 +1200,14 @@
               <div key={i} className="bg-[#1a1919] border-l-4 border-l-[#6bff8f] rounded-xl p-4 flex justify-between items-center">
                 <div className="flex flex-col">
                   <span className="text-white text-sm font-medium">{f.name}</span>
-                  {f.calories > 0 && <span className="text-[10px] text-gray-500 font-bold uppercase mt-0.5">{f.calories} kcal • {f.protein}g P</span>}
+                  {f.calories > 0 && (
+                    <span className="text-[10px] text-gray-500 font-bold uppercase mt-0.5">
+                      {f.calories} kcal
+                      {f.protein > 0 && <span className="text-[#00cba8]"> · {f.protein}g P</span>}
+                      {f.carbs > 0 && <span className="text-[#6ba4ff]"> · {f.carbs}g C</span>}
+                      {f.fat > 0 && <span className="text-[#ff6b6b]"> · {f.fat}g F</span>}
+                    </span>
+                  )}
                 </div>
                 <button type="button" onClick={() => setLoggedFoods(loggedFoods.filter((_, idx) => idx !== i))} className="text-red-400 p-2 hover:bg-red-500/10 rounded-lg transition-colors"><i className="fa-solid fa-trash text-xs"></i></button>
               </div>

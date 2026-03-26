@@ -561,6 +561,66 @@ async function handleApi(request, env, ctx, url) {
     });
   }
 
+  if (url.pathname === "/api/nutrition/search" && method === "GET") {
+    assertRole(session, "client");
+    const q = (url.searchParams.get("q") || "").trim();
+    if (q.length < 2) return json({ results: [], source: null });
+
+    // Helper: extract a nutrient value by USDA nutrient ID
+    const getNutrient = (nutrients, id) => {
+      const n = (nutrients || []).find(n => n.nutrientId === id);
+      return n ? Math.round((n.value || 0) * 10) / 10 : 0;
+    };
+
+    // ── Primary: USDA FoodData Central ──────────────────────────────────────
+    if (env.USDA_API_KEY) {
+      try {
+        const usdaUrl = `https://api.nal.usda.gov/fdc/v1/foods/search?query=${encodeURIComponent(q)}&api_key=${env.USDA_API_KEY}&pageSize=10&dataType=Foundation,SR%20Legacy,Branded`;
+        const res = await fetchWithTimeout(usdaUrl, {}, 8000);
+        if (res.ok) {
+          const data = await res.json();
+          const results = (data.foods || []).map(food => ({
+            name: food.description,
+            calories: getNutrient(food.foodNutrients, 1008),
+            protein:  getNutrient(food.foodNutrients, 1003),
+            carbs:    getNutrient(food.foodNutrients, 1005),
+            fat:      getNutrient(food.foodNutrients, 1004),
+            per: "100g"
+          })).filter(r => r.calories > 0 || r.protein > 0).slice(0, 8);
+          if (results.length > 0) return json({ results, source: "usda" });
+        }
+      } catch {
+        // fall through to Open Food Facts
+      }
+    }
+
+    // ── Fallback: Open Food Facts (no API key required) ─────────────────────
+    try {
+      const offUrl = `https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q)}&json=true&page_size=10&fields=product_name,nutriments`;
+      const res = await fetchWithTimeout(offUrl, {}, 8000);
+      if (res.ok) {
+        const data = await res.json();
+        const results = (data.products || [])
+          .filter(p => p.product_name)
+          .map(p => ({
+            name:     p.product_name,
+            calories: Math.round(p.nutriments?.["energy-kcal_100g"] || p.nutriments?.["energy-kcal"] || 0),
+            protein:  Math.round((p.nutriments?.proteins_100g     || 0) * 10) / 10,
+            carbs:    Math.round((p.nutriments?.carbohydrates_100g || 0) * 10) / 10,
+            fat:      Math.round((p.nutriments?.fat_100g           || 0) * 10) / 10,
+            per: "100g"
+          }))
+          .filter(r => r.calories > 0 || r.protein > 0)
+          .slice(0, 8);
+        return json({ results, source: "openfoodfacts" });
+      }
+    } catch {
+      // both sources failed
+    }
+
+    return json({ results: [], source: null });
+  }
+
   if (url.pathname === "/api/admin/exports/google-sheets" && method === "POST") {
     assertRole(session, "admin");
     const body = await readJson(request);

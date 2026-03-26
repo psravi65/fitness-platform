@@ -20,3 +20,6 @@ COOKIE_SECURE = "true"
 APP_URL = "https://your-cloudflare-domain.workers.dev"
 EMAIL_FROM = "GymLog Coaching <onboarding@gymlog.app>"
 GEMINI_TIMEOUT_MS = "30000"
+# Nutrition search: get a free key at https://fdc.nal.usda.gov/api-guide.html
+# If unset, falls back to Open Food Facts (no key required)
+USDA_API_KEY = ""
