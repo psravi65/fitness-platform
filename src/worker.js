@@ -937,13 +937,18 @@ async function callGeminiAgent(env, agentName, systemPrompt, planJson, intakeJso
     if (!parsed) {
       return { status: "skipped", reason: "Agent returned invalid JSON", issues: [], suggestions: [] };
     }
+    const validStatuses = ["approved", "needs_attention", "flagged"];
+    const statusVal = parsed.status;
+    const scoreVal = Number(parsed.score);
+    const malformed = !validStatuses.includes(statusVal) || !(scoreVal >= 1 && scoreVal <= 10);
     return {
-      status: parsed.status || "approved",
-      score: Number(parsed.score) || 7,
+      status: validStatuses.includes(statusVal) ? statusVal : "needs_attention",
+      score: (scoreVal >= 1 && scoreVal <= 10) ? scoreVal : 5,
       summary: parsed.summary || "",
       issues: Array.isArray(parsed.issues) ? parsed.issues : [],
       suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions : [],
-      reviewedAt: nowIso()
+      reviewedAt: nowIso(),
+      ...(malformed ? { malformed: true, malformedFields: Object.keys(parsed) } : {})
     };
   } catch (err) {
     return { status: "skipped", reason: `Agent error: ${err.message}`, issues: [], suggestions: [] };
@@ -1098,13 +1103,18 @@ async function refinePlanWithAgentFeedback(env, intake, plan, agentReviews, prog
     const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("") || "";
     const parsed = safeJson(text, null);
     if (!parsed || typeof parsed !== "object") return plan;
-    return normalizePlan(parsed, intake, {
+    const refined = normalizePlan(parsed, intake, {
       source: "gemini-refined",
       reason: "Plan refined with agent feedback.",
       model: env.GEMINI_MODEL || "gemini-2.5-flash",
       generatedAt: nowIso(),
       issuesAddressed: totalIssues
     });
+    // Fall back to original if refinement lost critical content
+    const hasMeals = Array.isArray(refined.mealOptions) && refined.mealOptions.length > 0;
+    const hasWorkouts = Array.isArray(refined.workoutSplit) && refined.workoutSplit.length > 0;
+    if (!hasMeals || !hasWorkouts) return plan;
+    return refined;
   } catch {
     return plan;
   }
