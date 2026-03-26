@@ -1757,6 +1757,8 @@
       const [planViewTab, setPlanViewTab] = useState('workout');
       const [credentialsModal, setCredentialsModal] = useState(null);
       const [showAgentReviews, setShowAgentReviews] = useState(false);
+      const [runningAgent, setRunningAgent] = useState(null); // 'nutritionist'|'fitnessExpert'|'sportsScientist'|null
+      const [refiningPlan, setRefiningPlan] = useState(false);
 
       const fetchDetails = async () => {
         try { const res = await api(`/api/admin/clients/${client.id}`); setDetails(res); }
@@ -1764,16 +1766,39 @@
       };
       useEffect(() => { fetchDetails(); }, [client.id]);
 
-      // ✅ FIXED: correct API endpoint for generating plan
       const handleGeneratePlan = async () => {
         setGeneratingPlan(true);
-        setFlash({ msg: "⚙️ AI Agents working — this can take 1-2 minutes for thinking model..." });
+        setFlash({ msg: "⚙️ Generating plan..." });
         try {
           await api(`/api/admin/clients/${client.id}/generate-plan`, { method: 'POST' });
-          setFlash({ msg: "✅ AI Plan generated!" });
+          setFlash({ msg: "✅ Draft plan ready! Run agent reviews to validate." });
           fetchDetails();
         } catch (err) { setFlash({ err: err.message }); }
         setGeneratingPlan(false);
+      };
+
+      const handleRunAgentReview = async (agentKey) => {
+        setRunningAgent(agentKey);
+        setShowAgentReviews(true);
+        try {
+          const labels = { nutritionist: 'Nutritionist', fitnessExpert: 'Fitness Expert', sportsScientist: 'Sports Scientist' };
+          await api(`/api/admin/clients/${client.id}/run-agent-review`, { method: 'POST', body: JSON.stringify({ agent: agentKey }) });
+          setFlash({ msg: `✅ ${labels[agentKey]} review complete.` });
+          fetchDetails();
+        } catch (err) { setFlash({ err: err.message }); }
+        setRunningAgent(null);
+      };
+
+      const handleRefinePlan = async () => {
+        if (!confirm('Refine plan using agent feedback? This replaces the current plan and clears agent reviews.')) return;
+        setRefiningPlan(true);
+        setFlash({ msg: "⚙️ Refining plan with agent feedback..." });
+        try {
+          await api(`/api/admin/clients/${client.id}/refine-plan`, { method: 'POST' });
+          setFlash({ msg: "✅ Plan refined! Re-run agent reviews on the updated plan." });
+          fetchDetails();
+        } catch (err) { setFlash({ err: err.message }); }
+        setRefiningPlan(false);
       };
 
       // ✅ FIXED: correct API endpoint for publishing plan
@@ -1941,6 +1966,13 @@
                           <i className="fa-solid fa-eye-slash mr-2"></i> Unpublish
                         </button>
                   )}
+                  {details.plan?.agent_reviews_json && details.plan.agent_reviews_json.overallStatus !== 'approved' && (
+                    <button onClick={handleRefinePlan} disabled={refiningPlan || generatingPlan}
+                      className="ghost-btn flex-1 text-sm py-3 border-[#6ba4ff]/40 text-[#6ba4ff]">
+                      <i className={`fa-solid ${refiningPlan ? 'fa-spinner fa-spin' : 'fa-wand-magic-sparkles'} mr-2`}></i>
+                      {refiningPlan ? 'Refining…' : 'Refine with Feedback'}
+                    </button>
+                  )}
                 </div>
 
                 {!details.intake && (
@@ -1980,13 +2012,16 @@
                   {/* Agent pipeline status banner */}
                   {details.plan?.agent_reviews_json && (
                     <div className={`flex items-center justify-between px-4 py-2 rounded-xl border text-xs font-semibold ${
-                      details.plan.agent_reviews_json.overallStatus === 'flagged'       ? 'bg-[#ff6b6b]/10 border-[#ff6b6b]/30 text-[#ff6b6b]' :
+                      details.plan.agent_reviews_json.overallStatus === 'flagged'         ? 'bg-[#ff6b6b]/10 border-[#ff6b6b]/30 text-[#ff6b6b]' :
                       details.plan.agent_reviews_json.overallStatus === 'needs_attention' ? 'bg-[#ffc940]/10 border-[#ffc940]/30 text-[#ffc940]' :
-                                                                                            'bg-[#6bff8f]/10 border-[#6bff8f]/30 text-[#6bff8f]'
+                      details.plan.agent_reviews_json.overallStatus === 'approved'        ? 'bg-[#6bff8f]/10 border-[#6bff8f]/30 text-[#6bff8f]' :
+                                                                                            'bg-[#6ba4ff]/10 border-[#6ba4ff]/30 text-[#6ba4ff]'
                     }`}>
                       <span>
-                        {details.plan.agent_reviews_json.overallStatus === 'flagged' ? '🔴 Flagged by agents' :
-                         details.plan.agent_reviews_json.overallStatus === 'needs_attention' ? '🟡 Needs attention' : '🟢 All agents approved'}
+                        {details.plan.agent_reviews_json.overallStatus === 'flagged'         ? '🔴 Flagged by agents' :
+                         details.plan.agent_reviews_json.overallStatus === 'needs_attention' ? '🟡 Needs attention' :
+                         details.plan.agent_reviews_json.overallStatus === 'approved'        ? '🟢 All agents approved' :
+                                                                                               '🔵 Reviews in progress'}
                         {(() => { const n = ['nutritionist','fitnessExpert','sportsScientist'].reduce((s, k) => s + (details.plan.agent_reviews_json[k]?.issues?.length || 0), 0); return n > 0 ? ` · ${n} issue${n > 1 ? 's' : ''}` : ''; })()}
                       </span>
                       {(() => { const scores = ['nutritionist','fitnessExpert','sportsScientist'].map(k => details.plan.agent_reviews_json[k]?.score).filter(Boolean); return scores.length ? <span>Avg score {Math.round(scores.reduce((a,b)=>a+b,0)/scores.length*10)/10}/10</span> : null; })()}
@@ -2122,8 +2157,8 @@
                 </div>
               )}
 
-              {/* Agent Review Panel */}
-              {details.plan?.agent_reviews_json && (
+              {/* Agent Review Panel — always shown when plan exists */}
+              {details.plan && (
                 <div className="card space-y-4">
                   <button onClick={() => setShowAgentReviews(p => !p)} className="w-full flex justify-between items-center">
                     <h3 className="text-lg font-bold text-white">
@@ -2134,44 +2169,59 @@
                   {showAgentReviews && (
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                       {[
-                        { key: 'nutritionist',   label: 'Nutritionist',     icon: 'fa-bowl-rice' },
-                        { key: 'fitnessExpert',  label: 'Fitness Expert',   icon: 'fa-dumbbell' },
-                        { key: 'sportsScientist',label: 'Sports Scientist', icon: 'fa-flask' },
+                        { key: 'nutritionist',    label: 'Nutritionist',     icon: 'fa-bowl-rice' },
+                        { key: 'fitnessExpert',   label: 'Fitness Expert',   icon: 'fa-dumbbell' },
+                        { key: 'sportsScientist', label: 'Sports Scientist', icon: 'fa-flask' },
                       ].map(({ key, label, icon }) => {
-                        const r = details.plan.agent_reviews_json[key];
-                        if (!r) return null;
-                        const col = r.status === 'approved' ? '#6bff8f' : r.status === 'flagged' ? '#ff6b6b' : r.status === 'skipped' ? '#7a9abf' : '#ffc940';
-                        const emoji = r.status === 'approved' ? '✅' : r.status === 'flagged' ? '🚨' : r.status === 'skipped' ? '⏭' : '⚠️';
+                        const r = details.plan.agent_reviews_json?.[key];
+                        const isRunning = runningAgent === key;
+                        const col = !r ? '#7a9abf' : r.status === 'approved' ? '#6bff8f' : r.status === 'flagged' ? '#ff6b6b' : r.status === 'skipped' ? '#7a9abf' : '#ffc940';
+                        const emoji = !r ? '—' : r.status === 'approved' ? '✅' : r.status === 'flagged' ? '🚨' : r.status === 'skipped' ? '⏭' : '⚠️';
                         return (
                           <div key={key} className="bg-[#0b1628] rounded-xl p-4 border border-[#1a2e48] space-y-3">
                             <div className="flex justify-between items-center">
                               <div className="font-bold text-white text-sm">
                                 <i className={`fa-solid ${icon} mr-2`} style={{color: col}}></i>{label}
                               </div>
-                              {r.status === 'skipped'
-                                ? <span className="text-xs text-gray-500">Skipped</span>
-                                : <span className="text-xs font-black" style={{color: col}}>{r.score}/10</span>
+                              {isRunning
+                                ? <i className="fa-solid fa-spinner fa-spin text-[#6ba4ff] text-xs"></i>
+                                : !r
+                                  ? <span className="text-xs text-gray-500">Not run</span>
+                                  : r.status === 'skipped'
+                                    ? <span className="text-xs text-gray-500">Skipped</span>
+                                    : <span className="text-xs font-black" style={{color: col}}>{r.score}/10</span>
                               }
                             </div>
-                            {r.status === 'skipped'
-                              ? <p className="text-xs text-gray-500 italic">{r.reason || 'Agent was skipped'}</p>
-                              : <>
-                                  <div className="text-xs font-semibold capitalize" style={{color: col}}>{emoji} {r.status?.replace(/_/g,' ')}</div>
-                                  {r.summary && <p className="text-xs text-gray-300 leading-relaxed">{r.summary}</p>}
-                                  {r.issues?.length > 0 && (
-                                    <div>
-                                      <div className="text-[10px] text-[#ff6b6b] font-bold uppercase tracking-widest mb-1">Issues ({r.issues.length})</div>
-                                      <ul className="space-y-1">{r.issues.map((iss, i) => <li key={i} className="text-xs text-gray-300 flex gap-1"><span className="text-[#ff6b6b] shrink-0">•</span><span>{iss}</span></li>)}</ul>
-                                    </div>
-                                  )}
-                                  {r.suggestions?.length > 0 && (
-                                    <div>
-                                      <div className="text-[10px] text-[#6ba4ff] font-bold uppercase tracking-widest mb-1">Suggestions ({r.suggestions.length})</div>
-                                      <ul className="space-y-1">{r.suggestions.map((s, i) => <li key={i} className="text-xs text-gray-300 flex gap-1"><span className="text-[#6ba4ff] shrink-0">•</span><span>{s}</span></li>)}</ul>
-                                    </div>
-                                  )}
-                                </>
+                            {isRunning
+                              ? <p className="text-xs text-[#6ba4ff] italic">Running review...</p>
+                              : !r
+                                ? <p className="text-xs text-gray-500 italic">No review yet.</p>
+                                : r.status === 'skipped'
+                                  ? <p className="text-xs text-gray-500 italic">{r.reason || 'Agent was skipped'}</p>
+                                  : <>
+                                      <div className="text-xs font-semibold capitalize" style={{color: col}}>{emoji} {r.status?.replace(/_/g,' ')}</div>
+                                      {r.summary && <p className="text-xs text-gray-300 leading-relaxed">{r.summary}</p>}
+                                      {r.issues?.length > 0 && (
+                                        <div>
+                                          <div className="text-[10px] text-[#ff6b6b] font-bold uppercase tracking-widest mb-1">Issues ({r.issues.length})</div>
+                                          <ul className="space-y-1">{r.issues.map((iss, i) => <li key={i} className="text-xs text-gray-300 flex gap-1"><span className="text-[#ff6b6b] shrink-0">•</span><span>{iss}</span></li>)}</ul>
+                                        </div>
+                                      )}
+                                      {r.suggestions?.length > 0 && (
+                                        <div>
+                                          <div className="text-[10px] text-[#6ba4ff] font-bold uppercase tracking-widest mb-1">Suggestions ({r.suggestions.length})</div>
+                                          <ul className="space-y-1">{r.suggestions.map((s, i) => <li key={i} className="text-xs text-gray-300 flex gap-1"><span className="text-[#6ba4ff] shrink-0">•</span><span>{s}</span></li>)}</ul>
+                                        </div>
+                                      )}
+                                    </>
                             }
+                            <button
+                              onClick={() => handleRunAgentReview(key)}
+                              disabled={!!runningAgent || refiningPlan || generatingPlan}
+                              className="ghost-btn w-full text-xs py-2 border-[#1a3a5c] text-[#6ba4ff] hover:border-[#6ba4ff]/50">
+                              <i className={`fa-solid ${isRunning ? 'fa-spinner fa-spin' : 'fa-play'} mr-1`}></i>
+                              {isRunning ? 'Running…' : r ? 'Re-run Review' : 'Run Review'}
+                            </button>
                           </div>
                         );
                       })}

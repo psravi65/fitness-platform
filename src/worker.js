@@ -458,34 +458,95 @@ async function handleApi(request, env, ctx, url) {
     if (lockActive) return json({ error: "Plan generation is already in progress for this client." }, 409);
     await env.DB.prepare(`INSERT OR REPLACE INTO rate_limits (key, attempts, window_start) VALUES (?, 1, ?)`).bind(lockKey, new Date().toISOString()).run();
 
-    let normalized, draftReviews, finalPlan, finalReviews;
+    let normalized;
     try {
     const intake = await getLatestIntake(env, clientId);
     if (!intake) return json({ error: "Client intake is required before generating a plan." }, 400);
     const progressContext = await getProgressContext(env, clientId);
-
-    // ── Household context: find reference member's plan if household exists
     const householdContext = await getHouseholdContext(env, clientId);
-
     normalized = await generatePlanFromIntake(env, intake.answers_json, progressContext, householdContext);
-    draftReviews = await runAgentPipeline(env, intake.answers_json, normalized, householdContext, progressContext);
-    finalPlan = await refinePlanWithAgentFeedback(env, intake.answers_json, normalized, draftReviews, progressContext, householdContext);
-    finalReviews = await runAgentPipeline(env, intake.answers_json, finalPlan, householdContext, progressContext);
-    finalReviews.refinedFrom = draftReviews;
-    if (householdContext) {
-      finalReviews.householdAware = true;
-      const mealMismatch = validateHouseholdMealAlignment(finalPlan, householdContext);
-      if (mealMismatch.length > 0) {
-        console.warn("[household] Meal alignment mismatch for client", clientId, "- mismatched dishes:", mealMismatch);
-        finalReviews.householdMealMismatch = mealMismatch;
-      }
-    }
-    await saveDraftPlan(env, clientId, intake.id, finalPlan, finalReviews);
+    await saveDraftPlan(env, clientId, intake.id, normalized, null);
     await writeAuditLog(env, session, "plan.generate", clientId, { intakeId: intake.id, householdAware: !!householdContext });
-    // Only count successful generations against the rate limit
     await incrementRateLimit(env, `generate-plan:${clientId}`, PLAN_GEN_RATE_LIMIT_WINDOW_S);
     } finally {
-      // Always release the in-flight lock so retries aren't permanently blocked
+      await env.DB.prepare(`DELETE FROM rate_limits WHERE key = ?`).bind(lockKey).run().catch(() => {});
+    }
+    return json({ ok: true });
+  }
+
+  const runAgentReviewMatch = url.pathname.match(/^\/api\/admin\/clients\/([^/]+)\/run-agent-review$/);
+  if (runAgentReviewMatch && method === "POST") {
+    assertRole(session, "admin");
+    const clientId = runAgentReviewMatch[1];
+    await assertClientBelongsToGym(env, session, clientId);
+
+    const body = await readJson(request);
+    const agentKey = body.agent;
+    if (!['nutritionist', 'fitnessExpert', 'sportsScientist'].includes(agentKey))
+      return json({ error: "agent must be one of: nutritionist, fitnessExpert, sportsScientist" }, 400);
+
+    const plan = await getLatestPlan(env, clientId);
+    if (!plan) return json({ error: "No plan found. Generate a plan first." }, 404);
+    const intake = await getLatestIntake(env, clientId);
+    if (!intake) return json({ error: "Client intake is required." }, 400);
+    const progressContext = await getProgressContext(env, clientId);
+    const householdContext = await getHouseholdContext(env, clientId);
+
+    let agentResult;
+    if (agentKey === 'nutritionist')
+      agentResult = await runNutritionistAgent(env, intake.answers_json, plan.effectivePlan, householdContext, progressContext);
+    else if (agentKey === 'fitnessExpert')
+      agentResult = await runFitnessExpertAgent(env, intake.answers_json, plan.effectivePlan, null, progressContext);
+    else
+      agentResult = await runSportsScientistAgent(env, intake.answers_json, plan.effectivePlan, null, progressContext);
+
+    // Merge into existing reviews, preserving other agents' results
+    const merged = { ...(plan.agent_reviews_json || {}), [agentKey]: agentResult, pipelineRunAt: nowIso() };
+    const all = ['nutritionist', 'fitnessExpert', 'sportsScientist'].map(k => merged[k]).filter(Boolean);
+    merged.overallStatus = all.some(a => a.status === 'flagged') ? 'flagged'
+      : all.some(a => a.status === 'needs_attention') ? 'needs_attention'
+      : all.every(a => a.status === 'approved') ? 'approved' : 'partial';
+
+    await env.DB.prepare(
+      `UPDATE plans SET agent_reviews_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+    ).bind(JSON.stringify(merged), plan.id).run();
+    await writeAuditLog(env, session, "plan.agent_review", clientId, { agent: agentKey, status: agentResult.status });
+    return json({ ok: true, review: agentResult, overallStatus: merged.overallStatus });
+  }
+
+  const refinePlanRouteMatch = url.pathname.match(/^\/api\/admin\/clients\/([^/]+)\/refine-plan$/);
+  if (refinePlanRouteMatch && method === "POST") {
+    assertRole(session, "admin");
+    const clientId = refinePlanRouteMatch[1];
+    await assertClientBelongsToGym(env, session, clientId);
+
+    const lockKey = `plan-in-flight:${clientId}`;
+    const lockRecord = await env.DB.prepare(`SELECT attempts, window_start FROM rate_limits WHERE key = ?`).bind(lockKey).first();
+    const lockActive = lockRecord && (Date.now() - new Date(lockRecord.window_start).getTime() < PLAN_GEN_LOCK_TTL_S * 1000);
+    if (lockActive) return json({ error: "A plan operation is already in progress for this client." }, 409);
+    await env.DB.prepare(`INSERT OR REPLACE INTO rate_limits (key, attempts, window_start) VALUES (?, 1, ?)`).bind(lockKey, new Date().toISOString()).run();
+
+    try {
+      const plan = await getLatestPlan(env, clientId);
+      if (!plan) return json({ error: "No plan found." }, 404);
+      const agentReviews = plan.agent_reviews_json;
+      if (!agentReviews || !['nutritionist', 'fitnessExpert', 'sportsScientist'].some(k => agentReviews[k]))
+        return json({ error: "Run at least one agent review before refining." }, 400);
+
+      const intake = await getLatestIntake(env, clientId);
+      if (!intake) return json({ error: "Client intake is required." }, 400);
+      const progressContext = await getProgressContext(env, clientId);
+      const householdContext = await getHouseholdContext(env, clientId);
+
+      const refined = await refinePlanWithAgentFeedback(
+        env, intake.answers_json, plan.effectivePlan, agentReviews, progressContext, householdContext
+      );
+      // Save refined plan; clear reviews so coach re-runs agents on the new plan
+      await env.DB.prepare(`
+        UPDATE plans SET generated_json = ?, edited_json = NULL, agent_reviews_json = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+      `).bind(JSON.stringify(refined), plan.id).run();
+      await writeAuditLog(env, session, "plan.refine", clientId, { planId: plan.id });
+    } finally {
       await env.DB.prepare(`DELETE FROM rate_limits WHERE key = ?`).bind(lockKey).run().catch(() => {});
     }
     return json({ ok: true });
