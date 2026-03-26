@@ -1117,7 +1117,7 @@ async function callGeminiAgent(env, agentName, systemPrompt, planJson, intakeJso
       return { status: "skipped", reason: `Agent API error: HTTP ${res.status}`, issues: [], suggestions: [] };
     }
     const data = await res.json();
-    const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("") || "";
+    const text = (data?.candidates?.[0]?.content?.parts || []).filter(p => !p.thought).map(p => p.text || "").join("") || "";
     const parsed = safeJson(text, null);
     if (!parsed) {
       return { status: "skipped", reason: "Agent returned invalid JSON", issues: [], suggestions: [] };
@@ -1285,7 +1285,7 @@ async function refinePlanWithAgentFeedback(env, intake, plan, agentReviews, prog
     }, Number(env.GEMINI_TIMEOUT_MS) || GEMINI_TIMEOUT_MS);
     if (!res.ok) return plan;
     const data = await res.json();
-    const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("") || "";
+    const text = (data?.candidates?.[0]?.content?.parts || []).filter(p => !p.thought).map(p => p.text || "").join("") || "";
     const parsed = safeJson(text, null);
     if (!parsed || typeof parsed !== "object") return plan;
     const refined = normalizePlan(parsed, intake, {
@@ -1372,7 +1372,7 @@ async function generatePlanFromIntake(env, intake, progressContext = {}, househo
   }
 
   const data = await res.json();
-  const text = data?.candidates?.[0]?.content?.parts?.map(part => part.text || "").join("") || "";
+  const text = (data?.candidates?.[0]?.content?.parts || []).filter(p => !p.thought).map(p => p.text || "").join("") || "";
   const parsed = safeJson(text, null);
   if (!parsed || typeof parsed !== "object") {
     return fallbackPlanFromIntake(intake, {
