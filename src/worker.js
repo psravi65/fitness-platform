@@ -11,11 +11,7 @@ const GEMINI_TIMEOUT_MS          = 30000; // default Gemini API timeout
 export default {
   async fetch(request, env, ctx) {
     if (env.APP_URL === "https://your-cloudflare-domain.workers.dev") {
-      console.error("[config] FATAL: APP_URL is still the default placeholder. Update it in wrangler.toml before deploying.");
-      return new Response(
-        JSON.stringify({ error: "Server misconfiguration: APP_URL is not set. Contact the administrator." }),
-        { status: 503, headers: { "Content-Type": "application/json" } }
-      );
+      console.warn("[config] APP_URL is still the default placeholder. Email links will be broken. Update it in wrangler.toml.");
     }
     if (!env.GEMINI_API_KEY) {
       console.warn("[config] GEMINI_API_KEY is not set. Plans will use the deterministic fallback generator.");
