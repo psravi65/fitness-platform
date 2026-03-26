@@ -468,9 +468,9 @@ async function handleApi(request, env, ctx, url) {
     const householdContext = await getHouseholdContext(env, clientId);
 
     normalized = await generatePlanFromIntake(env, intake.answers_json, progressContext, householdContext);
-    draftReviews = await runAgentPipeline(env, intake.answers_json, normalized, householdContext);
+    draftReviews = await runAgentPipeline(env, intake.answers_json, normalized, householdContext, progressContext);
     finalPlan = await refinePlanWithAgentFeedback(env, intake.answers_json, normalized, draftReviews, progressContext, householdContext);
-    finalReviews = await runAgentPipeline(env, intake.answers_json, finalPlan, householdContext);
+    finalReviews = await runAgentPipeline(env, intake.answers_json, finalPlan, householdContext, progressContext);
     finalReviews.refinedFrom = draftReviews;
     if (householdContext) {
       finalReviews.householdAware = true;
@@ -1074,7 +1074,7 @@ async function getHouseholdContext(env, clientId) {
   };
 }
 
-async function callGeminiAgent(env, agentName, systemPrompt, planJson, intakeJson, householdContext = null) {
+async function callGeminiAgent(env, agentName, systemPrompt, planJson, intakeJson, householdContext = null, progressContext = {}) {
   if (!env.GEMINI_API_KEY) {
     return { status: "skipped", reason: "GEMINI_API_KEY not configured", issues: [], suggestions: [] };
   }
@@ -1090,11 +1090,14 @@ async function callGeminiAgent(env, agentName, systemPrompt, planJson, intakeJso
       JSON.stringify({ mealOptions: householdContext.basePlan?.mealOptions || [], calorieTarget: householdContext.basePlan?.calorieTarget })
     );
   }
+  const progressSummary = buildProgressSummary(progressContext);
+  const hasProgress = progressSummary.dailyLogs.length > 0 || progressSummary.checkins.length > 0 || progressSummary.weeklyReview;
   parts.push(
     "INTAKE DATA:",
     JSON.stringify(intakeJson),
     "GENERATED PLAN TO REVIEW:",
     JSON.stringify(planJson),
+    ...(hasProgress ? ["CLIENT PROGRESS DATA (last 14 daily logs, last 8 check-ins, latest weekly review):", JSON.stringify(progressSummary)] : []),
     "Return ONLY a JSON object in this exact shape — no prose, no markdown:",
     JSON.stringify({
       status: "approved | needs_attention | flagged",
@@ -1150,7 +1153,7 @@ async function callGeminiAgent(env, agentName, systemPrompt, planJson, intakeJso
   }
 }
 
-async function runNutritionistAgent(env, intake, plan, householdContext = null) {
+async function runNutritionistAgent(env, intake, plan, householdContext = null, progressContext = {}) {
   const householdExtra = householdContext
     ? `\nHOUSEHOLD RULE: This client shares all meals with ${householdContext.memberName}. Meal DISHES must be IDENTICAL to the household reference plan. Macro values should be proportionally scaled to this client's calorie target. Flag ANY dish mismatch as a critical issue.`
     : "";
@@ -1159,42 +1162,45 @@ Your job is to validate the nutrition section ONLY — macros, calories, meal op
 Focus on: calorie target vs goal and body weight, protein adequacy (minimum 1.6g/kg for muscle, 1.2g/kg for fat loss),
 meal variety and cuisine alignment with client preferences, food allergies respected, meal frequency matching client preference,
 any dangerous deficits (under 1200 kcal for women, under 1500 kcal for men).
+If progress data is provided, use it: flag if actual logged macros show consistent shortfalls, if weight check-ins show a plateau suggesting calorie adjustment is needed, or if the client is consistently not hitting meal targets.
 Be specific and constructive. Score 1-10 where 10 is perfect.
 Status rules: approved = no serious issues, needs_attention = minor fixes needed, flagged = serious nutritional problem.${householdExtra}`;
-  return callGeminiAgent(env, "nutritionist", systemPrompt, plan, intake, householdContext);
+  return callGeminiAgent(env, "nutritionist", systemPrompt, plan, intake, householdContext, progressContext);
 }
 
-async function runFitnessExpertAgent(env, intake, plan, householdContext = null) {
+async function runFitnessExpertAgent(env, intake, plan, householdContext = null, progressContext = {}) {
   const systemPrompt = `You are a certified strength and conditioning coach (NSCA/NASM level) reviewing an AI-generated fitness plan.
 Your job is to validate the workout section ONLY — exercise selection, training split, volume, and safety.
 Focus on: training days matching client availability, exercise selection appropriate for gym access stated,
 all injuries and movement restrictions fully respected, volume appropriate for experience level (beginner vs advanced),
 compound vs isolation balance, rest day placement, warm-up and cool-down included.
+If progress data is provided, use it: flag if logged workouts show the client is consistently skipping sessions, struggling with certain exercises, or if cardio/steps data suggests the volume is too high or too low.
 Be specific and constructive. Score 1-10 where 10 is perfect.
 Status rules: approved = no serious issues, needs_attention = minor fixes needed, flagged = unsafe or inappropriate plan.`;
-  return callGeminiAgent(env, "fitnessExpert", systemPrompt, plan, intake, null);
+  return callGeminiAgent(env, "fitnessExpert", systemPrompt, plan, intake, null, progressContext);
 }
 
-async function runSportsScientistAgent(env, intake, plan, householdContext = null) {
+async function runSportsScientistAgent(env, intake, plan, householdContext = null, progressContext = {}) {
   const systemPrompt = `You are a sports scientist specialising in evidence-based training programme design.
 Your job is to validate the overall structure of this fitness plan — periodisation, progressive overload, and recovery science.
 Focus on: progressive overload protocol present (weekly load increases), periodisation structure (linear, undulating, or block),
 deload weeks recommended for plans over 4 weeks, recovery days adequate relative to intensity,
 milestones are measurable and realistic, success rules are evidence-based not anecdotal,
 overall plan coherence — nutrition and training aligned toward the same goal.
+If progress data is provided, use it: flag if check-in trends show no body composition change over multiple weeks (suggesting the plan needs structural adjustment), or if recovery indicators suggest the client is under-recovering.
 Be specific and constructive. Score 1-10 where 10 is perfect.
 Status rules: approved = well-structured evidence-based plan, needs_attention = missing some science principles, flagged = poor structure that will limit results.`;
-  return callGeminiAgent(env, "sportsScientist", systemPrompt, plan, intake, null);
+  return callGeminiAgent(env, "sportsScientist", systemPrompt, plan, intake, null, progressContext);
 }
 
 
-async function runAgentPipeline(env, intake, plan, householdContext = null) {
+async function runAgentPipeline(env, intake, plan, householdContext = null, progressContext = {}) {
   // Run sequentially with a short delay between calls to stay within Gemini free-tier RPM limits
-  const nutritionist = await runNutritionistAgent(env, intake, plan, householdContext);
+  const nutritionist = await runNutritionistAgent(env, intake, plan, householdContext, progressContext);
   await new Promise(r => setTimeout(r, 5000));
-  const fitnessExpert = await runFitnessExpertAgent(env, intake, plan, null);
+  const fitnessExpert = await runFitnessExpertAgent(env, intake, plan, null, progressContext);
   await new Promise(r => setTimeout(r, 5000));
-  const sportsScientist = await runSportsScientistAgent(env, intake, plan, null);
+  const sportsScientist = await runSportsScientistAgent(env, intake, plan, null, progressContext);
   return {
     nutritionist,
     fitnessExpert,
