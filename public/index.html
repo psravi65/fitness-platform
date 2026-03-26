@@ -1152,6 +1152,9 @@
                   {/* Search results dropdown */}
                   {searchResults.length > 0 && (
                     <div className="bg-[#0b1628] border border-[#1a2e48] rounded-xl overflow-hidden shadow-xl">
+                      <div className="px-4 py-2 bg-[#142642] text-[9px] text-[#7a9abf] uppercase tracking-widest font-bold">
+                        Tap a result to select it and set your portion
+                      </div>
                       {searchResults.map((r, i) => (
                         <button key={i} type="button" onClick={() => handleSelectNutritionResult(r)}
                           className="w-full text-left px-4 py-3 hover:bg-[#142642] transition-colors border-b border-[#1a2e48] last:border-0">
@@ -1167,17 +1170,37 @@
                     </div>
                   )}
 
-                  {/* Serving size + scaled macros */}
+                  {/* Serving size + scaled macros — shown immediately after selecting a result */}
                   {selectedNutrition && scaledMacros && (
-                    <div className="bg-[#0b1628] border border-[#6bff8f]/20 rounded-xl p-4 space-y-3">
-                      <div className="flex items-center gap-3">
-                        <label className="text-xs text-gray-400 font-bold uppercase tracking-widest whitespace-nowrap">Serving (g)</label>
-                        <input
-                          type="number" min="1" max="2000" value={servingGrams}
-                          onChange={e => setServingGrams(Math.max(1, Number(e.target.value) || 100))}
-                          className="bg-[#1a1919] border-white/10 text-white text-sm w-24 text-center"
-                        />
+                    <div className="bg-[#0b1628] border border-[#6bff8f]/30 rounded-xl p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-white font-bold truncate pr-2">{selectedNutrition.name}</span>
+                        <button type="button" onClick={() => { setSelectedNutrition(null); setSearchQuery(''); }} className="text-gray-500 hover:text-white text-xs shrink-0">✕ Clear</button>
                       </div>
+
+                      {/* Portion quick-select buttons */}
+                      <div>
+                        <div className="text-[9px] text-gray-400 uppercase tracking-widest font-bold mb-2">Portion size</div>
+                        <div className="flex gap-2 flex-wrap mb-2">
+                          {[50, 100, 150, 200, 250].map(g => (
+                            <button key={g} type="button"
+                              onClick={() => setServingGrams(g)}
+                              className={`px-3 py-1 rounded-full text-[10px] font-bold border transition-all ${servingGrams === g ? 'bg-[#6bff8f] text-[#003a12] border-[#6bff8f]' : 'bg-transparent text-gray-400 border-white/10 hover:border-[#6bff8f]/40'}`}>
+                              {g}g
+                            </button>
+                          ))}
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="number" min="1" max="5000" value={servingGrams}
+                              onChange={e => setServingGrams(Math.max(1, Number(e.target.value) || 100))}
+                              className="bg-[#1a1919] border-white/10 text-white text-xs w-16 text-center py-1 rounded-full"
+                            />
+                            <span className="text-[10px] text-gray-400 font-bold">g</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Scaled macro tiles */}
                       <div className="grid grid-cols-4 gap-2 text-center">
                         {[['Kcal','calories','text-[#ffc940]'],['Protein','protein','text-[#00cba8]'],['Carbs','carbs','text-[#6ba4ff]'],['Fat','fat','text-[#ff6b6b]']].map(([label, key, color]) => (
                           <div key={key} className="bg-[#1a1919] rounded-xl p-2">
