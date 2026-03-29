@@ -806,15 +806,18 @@ async function assertClientBelongsToGym(env, session, clientId) {
 }
 
 async function getAdminClientDetail(env, clientId) {
-  const client = await env.DB.prepare(`SELECT * FROM clients WHERE id = ? AND deleted_at IS NULL LIMIT 1`).bind(clientId).first();
+  const [clientRow, user, intake, plan, dailyLogs, checkins, weeklyReview] = await Promise.all([
+    env.DB.prepare(`SELECT * FROM clients WHERE id = ? AND deleted_at IS NULL LIMIT 1`).bind(clientId).first(),
+    env.DB.prepare(`SELECT id, username, must_change_password FROM users WHERE client_id = ? AND role = 'client' LIMIT 1`).bind(clientId).first(),
+    getLatestIntake(env, clientId),
+    getLatestPlan(env, clientId),
+    selectJsonRows(env, `SELECT * FROM daily_logs WHERE client_id = ? ORDER BY log_date DESC LIMIT 7`, [clientId]),
+    selectJsonRows(env, `SELECT * FROM checkins WHERE client_id = ? ORDER BY checkin_date DESC LIMIT 8`, [clientId]),
+    env.DB.prepare(`SELECT * FROM weekly_reviews WHERE client_id = ? ORDER BY updated_at DESC LIMIT 1`).bind(clientId).first(),
+  ]);
+  const client = clientRow;
   if (!client) throw new HttpError("Client not found.", 404);
-  const user = await env.DB.prepare(`SELECT id, username, must_change_password FROM users WHERE client_id = ? AND role = 'client' LIMIT 1`).bind(clientId).first();
-  const intake = await getLatestIntake(env, clientId);
-  const plan = await getLatestPlan(env, clientId);
-  const dailyLogs = await selectJsonRows(env, `SELECT * FROM daily_logs WHERE client_id = ? ORDER BY log_date DESC LIMIT 7`, [clientId]);
-  const checkins = await selectJsonRows(env, `SELECT * FROM checkins WHERE client_id = ? ORDER BY checkin_date DESC LIMIT 8`, [clientId]);
-  const weeklyReview = await env.DB.prepare(`SELECT * FROM weekly_reviews WHERE client_id = ? ORDER BY updated_at DESC LIMIT 1`).bind(clientId).first();
-  // Get household members
+  // Get household members (depends on client.household_id — runs after first batch)
   const householdMembers = client.household_id ? (await env.DB.prepare(`
     SELECT clients.id, clients.full_name, users.username
     FROM clients
@@ -826,14 +829,18 @@ async function getAdminClientDetail(env, clientId) {
 }
 
 async function getClientBootstrap(env, clientId) {
-  const client = await env.DB.prepare(`SELECT * FROM clients WHERE id = ?`).bind(clientId).first();
-  const intake = await getLatestIntake(env, clientId);
-  const plan = await getPublishedPlan(env, clientId);
   const today = new Date().toISOString().slice(0, 10);
-  const dailyLog = await env.DB.prepare(`SELECT * FROM daily_logs WHERE client_id = ? AND log_date = ?`).bind(clientId, today).first();
-  const weeklyReview = await env.DB.prepare(`SELECT * FROM weekly_reviews WHERE client_id = ? ORDER BY updated_at DESC LIMIT 1`).bind(clientId).first();
-  const recentWorkoutLogs = await selectJsonRows(env, `SELECT * FROM daily_logs WHERE client_id = ? AND TRIM(COALESCE(workout_json, '')) <> '' ORDER BY log_date DESC LIMIT 20`, [clientId]);
+  const [client, intake, plan, dailyLog, weeklyReview, recentWorkoutLogs, checkins] = await Promise.all([
+    env.DB.prepare(`SELECT * FROM clients WHERE id = ?`).bind(clientId).first(),
+    getLatestIntake(env, clientId),
+    getPublishedPlan(env, clientId),
+    env.DB.prepare(`SELECT * FROM daily_logs WHERE client_id = ? AND log_date = ?`).bind(clientId, today).first(),
+    env.DB.prepare(`SELECT * FROM weekly_reviews WHERE client_id = ? ORDER BY updated_at DESC LIMIT 1`).bind(clientId).first(),
+    selectJsonRows(env, `SELECT * FROM daily_logs WHERE client_id = ? AND TRIM(COALESCE(workout_json, '')) <> '' ORDER BY log_date DESC LIMIT 20`, [clientId]),
+    selectJsonRows(env, `SELECT * FROM checkins WHERE client_id = ? ORDER BY checkin_date DESC LIMIT 10`, [clientId]),
+  ]);
   // Household: find meal scaling factor if client shares meals with household
+  // (depends on client.household_id — runs after first batch)
   let householdScale = null;
   if (client?.household_id) {
     const householdMembers = await env.DB.prepare(`
@@ -868,7 +875,7 @@ async function getClientBootstrap(env, clientId) {
     canEditIntake: client?.status === "intake_open" || !intake?.completed_at,
     dailyLog: parseStoredJsonRow(dailyLog),
     weeklyReview: parseStoredJsonRow(weeklyReview),
-    checkins: await selectJsonRows(env, `SELECT * FROM checkins WHERE client_id = ? ORDER BY checkin_date DESC LIMIT 10`, [clientId]),
+    checkins,
     recentWorkoutLogs,
     householdScale
   };
