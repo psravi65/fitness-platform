@@ -78,6 +78,14 @@ async function handleApi(request, env, ctx, url) {
     }
   }
 
+  // For read-only GET requests, open a D1 session that can be served from the
+  // nearest read replica (requires Read Replication to be enabled in the
+  // Cloudflare dashboard under D1 → database → Settings). Writes still go to
+  // the primary. Falls back to primary transparently if replication is off.
+  const readEnv = (method === "GET" && typeof env.DB.withSession === "function")
+    ? { ...env, DB: env.DB.withSession("first-unconstrained") }
+    : env;
+
   const session = await getSession(request, env);
 
   if (
@@ -370,7 +378,7 @@ async function handleApi(request, env, ctx, url) {
   if (adminClientMatch && method === "GET") {
     assertRole(session, "admin");
     await assertClientBelongsToGym(env, session, adminClientMatch[1]);
-    return json(await getAdminClientDetail(env, adminClientMatch[1]));
+    return json(await getAdminClientDetail(readEnv, adminClientMatch[1]));
   }
 
   if (adminClientMatch && method === "DELETE") {
@@ -580,7 +588,7 @@ async function handleApi(request, env, ctx, url) {
 
   if (url.pathname === "/api/app/bootstrap" && method === "GET") {
     assertRole(session, "client");
-    return json(await getClientBootstrap(env, session.user.client_id));
+    return json(await getClientBootstrap(readEnv, session.user.client_id));
   }
 
   if (url.pathname === "/api/app/intake" && method === "GET") {
